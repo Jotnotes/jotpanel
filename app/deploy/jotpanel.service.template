@@ -1,0 +1,36 @@
+# Rendered by install.sh. @@INSTALL_DIR@@ and @@NODE@@ are substituted at
+# install time, which is why no path in this file is written out by hand: the
+# installer and the units disagreeing about where JotPanel lives was a real defect.
+[Unit]
+Description=JotPanel control panel
+# After ollama so that at shutdown the panel stops first: a build step in
+# progress is then interrupted and resumed at boot, not failed.
+After=network-online.target jotpanel-ops.service ollama.service
+Wants=network-online.target jotpanel-ops.service
+
+[Service]
+Type=simple
+User=jotpanel
+Group=jotpanel
+SupplementaryGroups=jotpanel-ops
+WorkingDirectory=@@INSTALL_DIR@@/app/backend
+EnvironmentFile=@@INSTALL_DIR@@/.env
+ExecStart=@@NODE@@ server.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@@INSTALL_DIR@@
+# The panel's only route to root. The dash tolerates the directory being
+# absent, which is what happens when the operations service is stopped: the
+# panel must still start and report the capability as unavailable rather than
+# refusing to boot.
+ReadWritePaths=-/run/jotpanel-ops
+CapabilityBoundingSet=
+LockPersonality=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

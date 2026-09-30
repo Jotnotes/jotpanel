@@ -1,0 +1,45 @@
+# Rendered by install.sh. @@INSTALL_DIR@@ and @@NODE@@ are substituted at
+# install time.
+#
+# Short-lived privileged work that the long-running operations daemon must not
+# do itself. jotpanel-ops keeps RestrictSUIDSGID and ProtectHome; dpkg can live
+# with neither. A package may legitimately carry a set-id binary, and running
+# apt inside the daemon failed on exactly that: libpam-modules-bin ships
+# pam_extrausers_chkpwd setgid shadow and dpkg could not set its mode. The same
+# run logged three read-only-filesystem complaints about /home and /root from
+# ProtectHome, which a maintainer script has every right to touch.
+#
+# The instance name is a fixed job identifier, never a package name, never a
+# command. The daemon validates it and this unit's script validates it again.
+[Unit]
+Description=JotPanel privileged oneshot (%i)
+After=network-online.target jotpanel-ops.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=@@INSTALL_DIR@@/app/backend
+Environment=NODE_ENV=production
+Environment=JOTPANEL_OPS_STATE_DIR=/var/lib/jotpanel-ops
+ExecStart=@@NODE@@ @@INSTALL_DIR@@/app/backend/privileged-oneshot.js %i
+TimeoutStartSec=25min
+StateDirectory=jotpanel-ops
+StateDirectoryMode=0750
+UMask=0022
+NoNewPrivileges=true
+# apt runs its download methods as child processes that setresuid to _apt.
+# NoNewPrivileges stops CAP_SETUID surviving that exec unless it is in the
+# ambient set, and without it apt dies with "Failed to set new user ids -
+# setresuid (1: Operation not permitted)" before a single package is fetched.
+# Verified both ways on the box with systemd-run.
+AmbientCapabilities=CAP_SETUID
+PrivateTmp=true
+ProtectKernelModules=true
+# ProtectHome is deliberately absent. It is on for the long-running daemon,
+# and a package maintainer script has every right to touch /root or /home; the
+# run that failed logged three read-only-filesystem complaints from it.
+
+[Install]
+WantedBy=multi-user.target

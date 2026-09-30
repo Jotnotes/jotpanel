@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0f1220">
+<title>Send to your desktop</title>
+<style>
+  :root{--bg:#0f1220;--sur:#1a2035;--bdr:rgba(255,255,255,.1);--tx:#f0f0f0;--tx2:#a0a8c0;--grn:#16a34a;--red:#f87171;}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{min-height:100%;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--tx);}
+  .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .card{width:100%;max-width:360px;background:var(--sur);border:1px solid var(--bdr);border-radius:20px;padding:32px 26px;text-align:center;}
+  .logo{font-size:36px;margin-bottom:10px;}
+  h1{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px;}
+  p{font-size:13px;color:var(--tx2);line-height:1.6;margin-bottom:22px;}
+  .pick{display:block;width:100%;padding:16px;background:var(--grn);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer;}
+  .pick:active{opacity:.8;}
+  input[type=file]{display:none;}
+  .state{display:none;font-size:14px;line-height:1.6;}
+  .big{font-size:44px;margin-bottom:10px;}
+  .err{color:var(--red);}
+  .again{margin-top:18px;background:transparent;border:1px solid var(--bdr);color:var(--tx2);padding:10px 18px;border-radius:10px;font-size:13px;font-family:inherit;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <div id="pickState">
+    <div class="logo">📱</div>
+    <h1>Send to your desktop</h1>
+    <p>Pick a photo and it lands straight in JotNotes Navigator. Nothing to install, nothing to sign into.</p>
+    <button class="pick" onclick="document.getElementById('f').click()">Choose a photo</button>
+    <input id="f" type="file" accept="image/*">
+  </div>
+  <div id="busyState" class="state"><div class="big">📤</div>Sending…</div>
+  <div id="doneState" class="state"><div class="big">✅</div>Landed. Look at the desktop.<br><button class="again" onclick="reset()">Send another</button></div>
+  <div id="errState" class="state err"><div class="big">⚠️</div><span id="errMsg">Upload failed.</span><br><button class="again" onclick="reset()">Try again</button></div>
+</div></div>
+<script>
+  var input = document.getElementById('f');
+  var STATES = ['pickState','busyState','doneState','errState'];
+  function show(id){ STATES.forEach(function(s){
+    document.getElementById(s).style.display = (s === id) ? 'block' : 'none';
+  }); }
+  function reset(){ input.value=''; show('pickState'); }
+  input.addEventListener('change', function(){
+    if (!input.files.length) return;
+    show('busyState');
+    var fd = new FormData();
+    fd.append('files', input.files[0], input.files[0].name);
+    fetch(location.pathname + '/files', { method: 'POST', body: fd })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, d: d }; }); })
+      .then(function(res){
+        if (!res.ok || res.d.error) throw new Error(res.d.error || 'Upload failed');
+        show('doneState');
+      })
+      .catch(function(e){ document.getElementById('errMsg').textContent = e.message; show('errState'); });
+  });
+</script>
+</body>
+</html>

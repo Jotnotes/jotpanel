@@ -1,0 +1,452 @@
+[
+ {
+  "text": "Give my bakery site a warmer, handmade feel without changing the logo.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "The checkout page feels crowded. Can you simplify the layout and make the pay button obvious?",
+  "role": "design",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "I don't know why, but this page just looks wrong. Can you suggest a cleaner arrangement?",
+  "role": "design",
+  "state": "confused"
+ },
+ {
+  "text": "Make the mobile menu match the rest of our salon branding.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "Could we try a darker theme, or would that make the text hard to read?",
+  "role": "design",
+  "state": "curious"
+ },
+ {
+  "text": "This template looks cheap as hell. Make it feel like a professional accounting firm.",
+  "role": "design",
+  "state": "frustrated"
+ },
+ {
+  "text": "Create a simple hero section for my plumbing company with a call-now button.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "I want the product cards to look more premium but not flashy.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "Can you pick better fonts and spacing for this landing page?",
+  "role": "design",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Our colours are blue and orange; please style the contact form so it fits.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "Would rounded buttons make the site look childish?",
+  "role": "design",
+  "state": "skeptical"
+ },
+ {
+  "text": "Fresh up the blog page, it feel very old now.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "Turn this plain maintenance screen into something friendly for customers.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "The banner is massive on phones and I'm sick of fighting it. Fix the visual proportions.",
+  "role": "design",
+  "state": "frustrated"
+ },
+ {
+  "text": "Show me a tasteful layout for testimonials, prices, and a booking form.",
+  "role": "design",
+  "state": "neutral"
+ },
+ {
+  "text": "Should I renew this hosting plan or move the site somewhere else?",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "Plan the safest order for moving our domain, website, and staff email.",
+  "role": "reasoning",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "I'm lost: do I need both the hosting package and this website builder subscription?",
+  "role": "reasoning",
+  "state": "confused"
+ },
+ {
+  "text": "Help me decide whether daily backups are worth the extra monthly cost.",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "What should we prioritise first: site speed, SEO, or a new checkout?",
+  "role": "reasoning",
+  "state": "curious"
+ },
+ {
+  "text": "I don't trust this one-click migration. What could go wrong?",
+  "role": "reasoning",
+  "state": "skeptical"
+ },
+ {
+  "text": "Make a launch checklist for the new restaurant website.",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "We have one hour of downtime available. Work out a sensible migration approach.",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "Should customer support share one mailbox or have separate accounts?",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "Figure out a backup policy for a shop that gets about twenty orders per day.",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "This DNS mess has wasted my whole morning. Tell me the least risky way out of it.",
+  "role": "reasoning",
+  "state": "frustrated"
+ },
+ {
+  "text": "Do we really need a staging site for such a small WordPress update?",
+  "role": "reasoning",
+  "state": "skeptical"
+ },
+ {
+  "text": "Compare the trade-offs of keeping old email locally versus importing everything.",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "Help me choose a maintenance window that will annoy the fewest customers.",
+  "role": "reasoning",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "If the developer leaves, how can I make sure the business still controls every account?",
+  "role": "reasoning",
+  "state": "neutral"
+ },
+ {
+  "text": "Fix the PHP error that appears when I open the WordPress admin page.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Write an nginx redirect from the old product URLs to the new ones.",
+  "role": "coding",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Why does this .htaccess rule keep causing a redirect loop? I dont get it.",
+  "role": "coding",
+  "state": "confused"
+ },
+ {
+  "text": "Add a cron job that exports the database every night and keeps seven copies.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Can you write the SQL to list orders that were paid but never marked complete?",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "This bloody plugin update broke the whole site. Find the code error and patch it.",
+  "role": "coding",
+  "state": "frustrated"
+ },
+ {
+  "text": "Configure the contact form to send through our SMTP account.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Is this JavaScript safe to paste into the site header?",
+  "role": "coding",
+  "state": "skeptical"
+ },
+ {
+  "text": "Make a script to check all my domains and warn me before SSL certificates expire.",
+  "role": "coding",
+  "state": "curious"
+ },
+ {
+  "text": "The API returns 403 only on production; help me debug the config.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Update this Docker Compose file so WordPress uses the existing MariaDB service.",
+  "role": "coding",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Repair the CSS so the checkout button isn't hidden on iPhone screens.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "I changed DNS and now mail is fucked. Check these SPF and MX records.",
+  "role": "coding",
+  "state": "frustrated"
+ },
+ {
+  "text": "Write a small function that adds VAT numbers to WooCommerce invoices.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Explain and fix the permission denied error in this deployment log.",
+  "role": "coding",
+  "state": "neutral"
+ },
+ {
+  "text": "Find the current price of managed WordPress hosting for three small sites.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Compare email storage limits from a few business mail providers.",
+  "role": "research",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Which domain registrars currently include WHOIS privacy at no extra charge?",
+  "role": "research",
+  "state": "curious"
+ },
+ {
+  "text": "Look up whether this WordPress plugin has had recent security problems.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "I keep seeing conflicting answers. Does Google still support free business email on custom domains?",
+  "role": "research",
+  "state": "confused"
+ },
+ {
+  "text": "Find a payment provider that supports subscriptions and businesses registered in France.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Are those uptime claims actually independent, or just marketing bullshit?",
+  "role": "research",
+  "state": "skeptical"
+ },
+ {
+  "text": "Check the latest renewal cost for my .shop domain.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Compare current backup services that can restore individual WordPress files.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Find out which hosts have data centres in Germany and phone support in English.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "What are people reporting lately about this provider's support response times?",
+  "role": "research",
+  "state": "curious"
+ },
+ {
+  "text": "Research affordable newsletter tools for a list of 4,000 customers.",
+  "role": "research",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Is this SSL upsell genuinely useful? Please verify what the certificate includes.",
+  "role": "research",
+  "state": "skeptical"
+ },
+ {
+  "text": "Find the present rules for keeping customer invoice records in the EU.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Search for a reliable WooCommerce shipping plugin that works with French parcel lockers.",
+  "role": "research",
+  "state": "neutral"
+ },
+ {
+  "text": "Summarise this month's hosting invoice in three bullet points.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Translate this maintenance notice into French and German.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Pull all email addresses out of this pasted customer list.",
+  "role": "mechanical",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Rewrite this outage message so it sounds calm and professional.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "I cant make sense of this invoice; list each charge in plain English.",
+  "role": "mechanical",
+  "state": "confused"
+ },
+ {
+  "text": "Format these DNS records as a clean table with name, type, value, and TTL.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Shorten this shop returns policy to 150 words.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Turn my rough notes into a numbered website handover checklist.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Can you extract only the failed login dates and IP addresses from this log?",
+  "role": "mechanical",
+  "state": "curious"
+ },
+ {
+  "text": "Correct the spelling in this email without changing my tone.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "This report is a wall of crap. Give me a readable one-paragraph summary.",
+  "role": "mechanical",
+  "state": "frustrated"
+ },
+ {
+  "text": "Convert these prices from yearly totals to monthly amounts.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Alphabetise the mailbox list and remove duplicates.",
+  "role": "mechanical",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Are you sure that summary includes every cancelled domain? Check and list them again.",
+  "role": "mechanical",
+  "state": "skeptical"
+ },
+ {
+  "text": "Rewrite this product description in simpler English for non-native readers.",
+  "role": "mechanical",
+  "state": "neutral"
+ },
+ {
+  "text": "Hi, what can you help me do in this hosting panel?",
+  "role": "chat",
+  "state": "curious"
+ },
+ {
+  "text": "Morning! Hope you're ready for another day of website chaos.",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "Are you a human support agent or an AI?",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "Where am I supposed to click to see my account name?",
+  "role": "chat",
+  "state": "confused"
+ },
+ {
+  "text": "Thanks, that was exactly what I needed.",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "Can you see everything on my desktop right now?",
+  "role": "chat",
+  "state": "skeptical"
+ },
+ {
+  "text": "hello are you there",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "What should I call you?",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "I'm ready; show me what you can do.",
+  "role": "chat",
+  "state": "ready-to-act"
+ },
+ {
+  "text": "Why the hell does this panel hide every useful button?",
+  "role": "chat",
+  "state": "frustrated"
+ },
+ {
+  "text": "Do you remember what we talked about yesterday?",
+  "role": "chat",
+  "state": "curious"
+ },
+ {
+  "text": "Can you control my computer, or do you only give instructions?",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "Sorry, I'm not very technical. Will you explain things slowly?",
+  "role": "chat",
+  "state": "confused"
+ },
+ {
+  "text": "Nice, the site is back online!",
+  "role": "chat",
+  "state": "neutral"
+ },
+ {
+  "text": "Before we start, is anything I type here shared with my hosting company?",
+  "role": "chat",
+  "state": "skeptical"
+ }
+]

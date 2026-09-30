@@ -1,0 +1,64 @@
+[Unit]
+Description=JotPanel privileged named-job operations service
+After=local-fs.target
+
+[Service]
+Environment=JOTPANEL_PANEL_STAGING=@@INSTALL_DIR@@/staging
+Type=simple
+User=root
+Group=root
+WorkingDirectory=@@INSTALL_DIR@@/app/backend
+Environment=NODE_ENV=production
+Environment=JOTPANEL_OPS_SOCKET=/run/jotpanel-ops/ops.sock
+Environment=JOTPANEL_OPS_STATE_DIR=/var/lib/jotpanel-ops
+Environment=JOTPANEL_OPS_GROUP=jotpanel-ops
+ExecStart=@@NODE@@ @@INSTALL_DIR@@/app/backend/ops-daemon.js
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=jotpanel-ops
+RuntimeDirectoryMode=0750
+StateDirectory=jotpanel-ops
+StateDirectoryMode=0750
+UMask=0007
+NoNewPrivileges=true
+AmbientCapabilities=CAP_SETUID
+PrivateTmp=true
+# Homes are still hidden, and exactly one directory under one of them is not.
+#
+# Authorising an SSH key means writing the authorized_keys file of an account
+# that can actually sign in. With plain ProtectHome=true this unit cannot see
+# /root at all, so the panel wrote the key into a directory it could reach
+# instead, and every key ever added through the panel authorised nobody.
+#
+# ReadWritePaths does not get past ProtectHome: the protection is a mount over
+# the whole home and there is nothing underneath it to open up. A bind mount
+# applied afterwards does. So homes become an empty tmpfs and /root/.ssh is
+# bound back in, which leaves the rest of /root invisible to this unit,
+# including root's own files and history.
+ProtectHome=tmpfs
+BindPaths=/root/.ssh
+ProtectKernelTunables=true
+# Modules cannot be loaded or unloaded from here, and the directory they live in
+# can still be measured, through a second name.
+#
+# ProtectKernelModules does two things: it takes away the ability to load and
+# unload kernel modules, which is the protection, and it mounts an empty
+# directory over /usr/lib/modules, which is a side effect. The side effect made
+# the disk usage screen quietly wrong: `du` runs inside this unit, so it
+# measured that directory as zero and the panel reported the machine as using
+# about 154 MB less than it does, on a box carrying one kernel. Nobody would
+# ever have noticed, because the only way to see it is to run du yourself and
+# compare, which is what scripts/verify-read-operations.js does now.
+#
+# Binding it back over its own path does not work: the masking wins, tested
+# rather than assumed. Binding it read-only under a second name does, and takes
+# nothing away, because the protection is the syscall filter and the missing
+# CAP_SYS_MODULE rather than the mount. So the folder measurement reads the
+# second name and nothing else in this unit knows the difference.
+ProtectKernelModules=true
+BindReadOnlyPaths=-/usr/lib/modules:/var/lib/jotpanel-ops/kernel-modules
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

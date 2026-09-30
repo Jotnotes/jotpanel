@@ -1,0 +1,41 @@
+{
+  "name": "jotpanel-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "ops": "node ops-daemon.js",
+    "dev": "node --env-file=.env server.js",
+    "test": "node test.js",
+    "test:compat": "node control/panelSettings.test.js && node control/layoutCompatibility.test.js && node ../frontend/panel-storage.test.mjs",
+    "test:unit": "node control/magicSignIn.test.js && node control/panelSettings.test.js && node control/layoutCompatibility.test.js && node ../frontend/panel-storage.test.mjs && node provisioning/provisioning.test.js && node provisioning/cpanelAdapter.test.js && node provisioning/hestiaAdapter.test.js && node control/control.test.js && node control/projectLedger.test.js && node control/residentGateway.test.js && node control/egressGuard.test.js && node control/supervisor.test.js && node control/failover.test.js && node control/jobRunner.test.js && node control/residentConversation.test.js && node ../mcp-gateway/test/gateway.test.js && node control/residentMultikey.test.js && node control/keyVaultRoutes.test.js && node control/echoPanelPrompt.test.js && node ../frontend/resident-projects.test.js && node control/backupHealth.test.js && node control/ops/backupWorkerTruth.test.js && node control/ops/ops.test.js && node control/ops/stackJobsComplete.test.js && node control/ops/reconcile.test.js && node control/ops/serviceSettle.test.js && node control/ops/migration.test.js && node control/ops/migrationContent.test.js && node control/ops/cpanelArchive.test.js && node control/ops/nofollow.test.js && node control/ops/runtimes.test.js && node control/ops/consistency.test.js && node control/ops/databases.test.js && node control/ops/siteProtect.test.js && node control/ops/firewallGuard.test.js && node control/assistantProposals.test.js && node control/assistantTierDefault.test.js && node control/echoProposals.test.js && node control/ops/mailAuth.test.js && node control/ops/certificates.test.js && node control/ops/webmail.test.js && node control/ops/fail2ban.test.js && node control/ops/resourceMetrics.test.js && node control/ops/diskUsage.test.js && node control/ops/integrations.test.js && node control/ops/backupDestinations.test.js && node control/ops/sftpHostKey.test.js && node control/tenantMetrics.test.js && node control/entitlements.test.js && node control/licenseGrace.test.js && node control/ownKeyRegistration.test.js && node control/twoFactor.test.js && node control/apiKeys.test.js && node control/providerKeys.test.js && node control/byog.test.js && node control/localRequest.test.js && node control/storageRoots.test.js && node control/workspaceStorage.test.js && node control/workspaceFiles.test.js && node control/workspacePublish.test.js && node control/ownerBootstrap.test.js && node control/passkeys.test.js && node control/accountRecovery.test.js && node control/recoveryCeremony.test.js && node control/ops/sitePathContainment.test.js && node ../frontend/shell.test.mjs && node ../frontend/render.test.mjs && node ../frontend/voice-input.test.mjs && node control/bundleBoundary.test.js && bash ../deploy/voice-upgrade-persistence.test.sh"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "^13.3.3",
+    "basic-ftp": "^5.0.5",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.2.0",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "imap": "^0.8.19",
+    "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.6.9",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "qrcode-svg": "^1.1.0",
+    "ssh2-sftp-client": "^9.1.0",
+    "stripe": "^14.21.0"
+  },
+  "overrides": {
+    "utf7": {
+      "semver": "^5.7.2"
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "AGPL-3.0-or-later"
+}

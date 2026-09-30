@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "as_of": "2026-09-25",
+  "note": "Maintained metadata, taken from each provider's own documentation. This file says what a model IS - its name, price, limits and capabilities. It never decides what a customer may use: that comes from their own key at runtime. Operators update it without waiting for a release by dropping a file of the same shape at <install>/data/model-catalogue.json; entries there win, per model, and anything absent falls back to this.",
+  "providers": {
+    "anthropic": {
+      "label": "Claude (Anthropic)",
+      "docs": "https://docs.anthropic.com/en/docs/about-claude/models",
+      "pricing_docs": "https://www.anthropic.com/pricing#api",
+      "discovery": { "style": "anthropic", "url": "https://api.anthropic.com/v1/models" },
+      "models": [
+        { "id": "claude-fable-5-1", "display": "Claude Fable 5.1", "input_per_mtok": 10.0, "output_per_mtok": 50.0, "context": 1000000, "max_output": 128000, "capabilities": ["chat", "tools", "vision", "thinking"], "notes": "Thinking is always on; forced tool_choice is refused." },
+        { "id": "claude-opus-5-5", "display": "Claude Opus 5.5", "input_per_mtok": 4.0, "output_per_mtok": 20.0, "context": 1000000, "max_output": 128000, "capabilities": ["chat", "tools", "vision", "thinking"], "notes": "Thinking cannot be disabled; effort defaults to medium." },
+        { "id": "claude-opus-5", "display": "Claude Opus 5", "input_per_mtok": 5.0, "output_per_mtok": 25.0, "context": 1000000, "max_output": 128000, "capabilities": ["chat", "tools", "vision", "thinking"] },
+        { "id": "claude-sonnet-5", "display": "Claude Sonnet 5", "input_per_mtok": 2.0, "output_per_mtok": 10.0, "context": 1000000, "max_output": 128000, "capabilities": ["chat", "tools", "vision", "thinking"] },
+        { "id": "claude-haiku-4-5", "display": "Claude Haiku 4.5", "input_per_mtok": 1.0, "output_per_mtok": 5.0, "context": 200000, "max_output": 64000, "capabilities": ["chat", "tools", "vision"] }
+      ]
+    },
+    "openai": {
+      "label": "ChatGPT (OpenAI)",
+      "docs": "https://developers.openai.com/api/docs/models",
+      "pricing_docs": "https://developers.openai.com/api/docs/pricing",
+      "discovery": { "style": "openai", "url": "https://api.openai.com/v1/models" },
+      "models": [
+        { "id": "gpt-6-astra", "display": "GPT-6 Astra", "input_per_mtok": 10.0, "output_per_mtok": 50.0, "context": null, "max_output": null, "capabilities": ["chat", "tools"] },
+        { "id": "gpt-6-sol", "display": "GPT-6 Sol", "input_per_mtok": 2.0, "output_per_mtok": 10.0, "context": null, "max_output": null, "capabilities": ["chat", "tools"] },
+        { "id": "gpt-6-luna", "display": "GPT-6 Luna", "input_per_mtok": 0.1, "output_per_mtok": 0.5, "context": null, "max_output": null, "capabilities": ["chat", "tools"] },
+        { "id": "gpt-5.6-sol", "display": "GPT-5.6 Sol", "input_per_mtok": 4.0, "output_per_mtok": 20.0, "context": null, "max_output": null, "capabilities": ["chat", "tools"] },
+        { "id": "gpt-5.6-luna", "display": "GPT-5.6 Luna", "input_per_mtok": 0.2, "output_per_mtok": 1.2, "context": null, "max_output": null, "capabilities": ["chat", "tools"] },
+        { "id": "gpt-5.4-mini", "display": "GPT-5.4 mini", "input_per_mtok": 0.75, "output_per_mtok": 4.5, "context": null, "max_output": null, "capabilities": ["chat", "tools"] }
+      ]
+    },
+    "gemini": {
+      "label": "Gemini (Google)",
+      "docs": "https://ai.google.dev/gemini-api/docs/models",
+      "pricing_docs": "https://ai.google.dev/gemini-api/docs/pricing",
+      "discovery": { "style": "gemini", "url": "https://generativelanguage.googleapis.com/v1beta/models" },
+      "models": [
+        { "id": "gemini-3.8-flash", "display": "Gemini 3.8 Flash", "input_per_mtok": 0.75, "output_per_mtok": 3.75, "context": null, "max_output": null, "capabilities": ["chat", "tools", "vision"], "notes": "Promotional rate to 31 Dec 2026; $1.50/$7.50 from 1 Jan 2027." },
+        { "id": "gemini-3.7-flash", "display": "Gemini 3.7 Flash", "input_per_mtok": 0.75, "output_per_mtok": 3.75, "context": null, "max_output": null, "capabilities": ["chat", "tools", "vision"], "notes": "Promotional rate to 31 Dec 2026." },
+        { "id": "gemini-3.6-flash", "display": "Gemini 3.6 Flash", "input_per_mtok": 0.75, "output_per_mtok": 3.75, "context": null, "max_output": null, "capabilities": ["chat", "tools", "vision"], "notes": "Promotional rate to 31 Dec 2026." },
+        { "id": "gemini-3.5-flash", "display": "Gemini 3.5 Flash", "input_per_mtok": 1.5, "output_per_mtok": 9.0, "context": null, "max_output": null, "capabilities": ["chat", "tools", "vision"] },
+        { "id": "gemini-3.5-flash-lite", "display": "Gemini 3.5 Flash-Lite", "input_per_mtok": 0.3, "output_per_mtok": 2.5, "context": null, "max_output": null, "capabilities": ["chat", "tools", "vision"] }
+      ]
+    },
+    "xai": {
+      "label": "Grok (xAI)",
+      "docs": "https://docs.x.ai/docs/models",
+      "pricing_docs": "https://docs.x.ai/docs/models",
+      "discovery": { "style": "openai", "url": "https://api.x.ai/v1/models" },
+      "models": [
+        { "id": "grok-4.7", "display": "Grok 4.7", "input_per_mtok": 2.0, "output_per_mtok": 6.0, "context": 500000, "max_output": null, "capabilities": ["chat", "tools"], "notes": "Price rises to $4/$12 per Mtok on prompts of 200k tokens or more." },
+        { "id": "grok-4.6", "display": "Grok 4.6", "input_per_mtok": 2.0, "output_per_mtok": 6.0, "context": 500000, "max_output": null, "capabilities": ["chat", "tools"], "notes": "Price rises to $4/$12 per Mtok on prompts of 200k tokens or more." },
+        { "id": "grok-4.5", "display": "Grok 4.5", "input_per_mtok": 2.0, "output_per_mtok": 6.0, "context": 500000, "max_output": null, "capabilities": ["chat", "tools"], "notes": "Price rises to $4/$12 per Mtok on prompts of 200k tokens or more." },
+        { "id": "grok-4.3", "display": "Grok 4.3", "input_per_mtok": 1.25, "output_per_mtok": 2.5, "context": 1000000, "max_output": null, "capabilities": ["chat", "tools"], "notes": "Price rises to $2.50/$5 per Mtok on prompts of 200k tokens or more." }
+      ]
+    }
+  }
+}

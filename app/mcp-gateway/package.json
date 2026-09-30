@@ -1,0 +1,16 @@
+{
+  "name": "@jotnotes/jotpanel-mcp",
+  "version": "1.0.0",
+  "description": "A proposal-only MCP gateway for JotPanel",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "bin": {
+    "jotpanel-mcp": "./jotpanel-mcp.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node test/gateway.test.js"
+  }
+}

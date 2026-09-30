@@ -1,0 +1,86 @@
+# What may go into a customer bundle. Everything else fails the build.
+#
+# This replaced a blocklist that grepped for four literal prompt strings. A
+# blocklist catches what somebody thought of on the day it was written: it would
+# not have noticed a new prompt, a renamed one, or a knowledge file, and it did
+# not notice that thirty-two test files, a book transcriber and the whole
+# upgrade desktop were going out to customers. An allowlist makes adding
+# something to the artifact a deliberate line in this file.
+#
+# One pattern per line, matched against paths relative to the staged root, with
+# `*` matching within a path segment and `**` matching across segments. A line
+# ending in `/` allows an empty directory and nothing inside it.
+#
+# Adding a line here is a decision about what a customer receives. If you are
+# not sure, leave it out and let the build fail: a missing file is a broken
+# install somebody notices, and an extra file is a leak nobody does.
+
+# ── The panel itself ─────────────────────────────────────────────
+app/backend/*.js
+app/backend/*.json
+app/backend/*.html
+app/backend/.env.example
+app/backend/control/**/*.js
+# The shipped model catalogue: what each provider's models are called, cost and
+# can do. Data rather than code, so the glob above does not reach it. A customer
+# install needs it, and an operator replaces it from the data directory without
+# a release.
+app/backend/control/modelCatalogue.json
+app/backend/provisioning/**/*.js
+app/backend/maintenance/**/*.js
+
+# Which product this bundle is. Written by the bundle script; always panel.
+app/PRODUCT
+
+# The voice service's source and its setup script. The model weights and the
+# virtualenv are built on the target box: the bundle once carried 337 MB of
+# them.
+app/backend/tts/*.py
+app/backend/tts/*.sh
+app/backend/tts/*.txt
+app/backend/tts/*.md
+
+# Created at install time and must be empty in the artifact. A file appearing
+# under it is somebody's upload, so the pattern deliberately allows the
+# directory and nothing in it.
+app/backend/uploads/
+
+# ── The front end ────────────────────────────────────────────────
+app/frontend/*.json
+app/frontend/*.js
+app/frontend/*.html
+app/frontend/*.css
+# The interface's words, in the languages it ships in. A subdirectory, so the
+# `*.json` line above does not reach them: that line is deliberately one level
+# deep, and widening it to match anything anywhere is how a directory nobody
+# meant to ship gets shipped.
+app/frontend/locales/*.json
+app/frontend/panel.jsx
+app/frontend/hoster.jsx
+app/frontend/hoster-admin.jsx
+app/frontend/sign-in.jsx
+
+# The panel itself. It used to live inside the desktop's file, so the free panel
+# could not be compiled without the paid product's source present and publishing
+# one published the other. It is its own module now and the desktop imports it
+# from here rather than the other way round, which is what lets the line for
+# `app/frontend/arca-webos.jsx` be gone from this file.
+app/frontend/control-panel.jsx
+
+
+# ── Installing it ────────────────────────────────────────────────
+app/deploy/*.sh
+app/deploy/*.conf
+app/deploy/*.template
+app/deploy/*.md
+app/deploy/.env.production
+app/deploy/BUNDLE_ALLOWLIST.txt
+
+# ── Written by the build ─────────────────────────────────────────
+app/BUNDLE_CONTENTS.txt
+
+# ── Legal ────────────────────────────────────────────────────────
+# The notice ships because it has to. `app/CLAUDE_HANDOFF.md` does not: it is an
+# internal handoff document and it was going out to customers until the
+# allowlist asked what it was doing there.
+app/NOTICE
