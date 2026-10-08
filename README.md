@@ -16,7 +16,7 @@ your AI reaches the panel. VACP is what it meets when it gets there, and it is J
 [![Latest release](https://img.shields.io/github/v/release/Jotnotes/jotpanel?label=release&color=2d7d46)](https://github.com/Jotnotes/jotpanel/releases/latest)
 [![Licence AGPL v3](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
 [![Debian and Ubuntu](https://img.shields.io/badge/runs%20on-Debian%20%7C%20Ubuntu-a81d33)](#what-a-machine-needs)
-[![Stars](https://img.shields.io/github/stars/Jotnotes/jotpanel?style=flat&color=f5a623)](https://github.com/Jotnotes/jotpanel/stargazers)
+[![Read back after every change](https://img.shields.io/badge/every%20change-read%20back-6b4fbb)](#how-a-change-happens)
 
 **[jotpanel.jotnotes.com](https://jotpanel.jotnotes.com)** · [Install](#install) · [What it does](#what-it-does) · [Connect your own AI](#connect-your-own-ai) · [For hosting companies](#for-hosting-companies)
 
