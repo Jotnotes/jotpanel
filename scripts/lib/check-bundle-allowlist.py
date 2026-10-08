@@ -55,10 +55,14 @@ def allowed(rel, is_dir, patterns):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit('usage: check-bundle-allowlist.py <staged-root> <allowlist>')
-    root, allowlist = sys.argv[1], sys.argv[2]
-    patterns = load(allowlist)
+    if len(sys.argv) < 3:
+        raise SystemExit('usage: check-bundle-allowlist.py <staged-root> <allowlist> [<allowlist>...]')
+    root, allowlists = sys.argv[1], sys.argv[2:]
+    # Several allowlists, because the two products ship from one tree: the
+    # shared list names what both carry and a per-product list names the few
+    # files only one of them does. Keeping them apart is what stops the paid
+    # desktop being allowed into the free panel by a line nobody reread.
+    patterns = [pattern for path in allowlists for pattern in load(path)]
 
     unlisted = []
     for base, dirs, files in os.walk(os.path.join(root, 'app')):
@@ -84,7 +88,8 @@ def main():
         print('Add each one to the allowlist deliberately, or leave it out of the bundle.', file=sys.stderr)
         print('A missing file is a broken install somebody notices. An extra file is a leak nobody does.', file=sys.stderr)
         return 1
-    print(f'Bundle allowlist: every staged file is named by {os.path.basename(allowlist)}')
+    print('Bundle allowlist: every staged file is named by '
+          + ' + '.join(os.path.basename(path) for path in allowlists))
     return 0
 
 

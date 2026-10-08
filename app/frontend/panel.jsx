@@ -4,7 +4,7 @@
 // and runs their server from. There is no desktop, no windows, no virtual
 // workspaces and no assistant. It is one page.
 //
-// It is the same ControlPanelApp the Arca desktop opens in a window, mounted
+// It is the same ControlPanelApp the Navigator desktop opens in a window, mounted
 // full-screen instead, which is what makes the upgrade path real rather than
 // promised: the person who moves to a machine that can run an assistant keeps
 // the same screens and gains the desktop around them, and nobody learns

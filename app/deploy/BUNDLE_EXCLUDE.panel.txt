@@ -1,0 +1,91 @@
+# What a JotPanel bundle must NOT carry, although the shared allowlist names it.
+#
+# The allowlist answers one question — may this file ship — and it answers it
+# for both products at once. That works until a file is one product's and not
+# the other's, and most of these are reached by lines that never say their
+# names: `app/backend/control/**/*.js` carries five of them, and
+# `app/backend/*.js` carries the sixth. Deleting a line cannot take them out of
+# a panel bundle without taking the rest of `control/` out with them.
+#
+# So the panel's exclusions are a list of their own, and it is a list of exact
+# paths rather than globs: a glob here would quietly grow to cover a file
+# somebody wrote next week, and the point of this file is that leaving a
+# customer's install short of something is a deliberate act, the same way
+# shipping something is.
+#
+# It is read by scripts/build-customer-bundle.sh after staging and before the
+# allowlist gate, so the gate is untouched and still fail-closed: everything
+# these removals leave behind must still be named by BUNDLE_ALLOWLIST.txt. The
+# removals are fail-closed too — a path listed here that is not in the stage
+# fails the build, because a renamed file is a file this list has silently
+# stopped excluding, and that failure is the only thing that would say so.
+#
+# One path per line. Directories allowed, and removed whole.
+
+# ── JotNotes Navigator's fleet, and the machines it is made of ───
+#
+# Making VMs, enrolling them into a fleet, collecting from them and handing one
+# over to the customer who bought it. All of it belongs to the product that
+# sells pools of machines, and none of it to a control panel somebody installs
+# on the one server they already have.
+#
+# The shared allowlist used to argue that this ships to every install and is
+# switched on by none of them — true of a Navigator guest, which is built from
+# the same image as its pool host. It is not an argument for putting it in a
+# JotPanel customer's hands: they did not buy a fleet, there is no pool host
+# that could ever poll them, and `JOTPANEL_FLEET_ROLE=pool-host` on their box
+# would switch on a hypervisor driver they never asked for.
+app/backend/machines
+app/backend/control/ops/machineJobs.js
+app/backend/control/fleet.js
+app/backend/control/fleetEnrollment.js
+app/backend/control/fleetSummary.js
+app/backend/control/activation.js
+
+# First-boot enrollment for a guest made from a Navigator image. The shared
+# allowlist ships these in both bundles on the reasoning that the image is
+# built from the bundle, so the one place they are needed would be the one
+# place they are missing. That reasoning is about the Navigator image and only
+# the Navigator image; a JotPanel install is never imaged from, and a unit file
+# that phones a pool host is not something to leave lying on a box that has
+# none.
+app/deploy/jotpanel-enroll.js
+app/deploy/jotpanel-enroll.service
+
+# The fleet screens, split out of hoster-admin.jsx: the pool host's view of its
+# guests, each guest's reading, and the button that reveals a guest's activation
+# code. hoster-admin.jsx itself is NOT here and must not be - the other eight
+# screens in it are JotPanel's own reseller administration. Only the fleet half
+# left, and it left because a panel customer has no fleet to look at.
+app/frontend/fleet-admin.jsx
+
+# The other product's allowlist. It ships in a Navigator bundle so an installed
+# box can say what it was allowed to carry; in a panel bundle it is a list of
+# the files this one is not allowed to carry, which is this file's job.
+app/deploy/BUNDLE_ALLOWLIST.navigator.txt
+
+# ── A test suite for a product that no longer exists ─────────────
+#
+# "Arca Backend Test Suite": 45 end-to-end checks fired at a running server,
+# against /api/journal, /api/legacy and /api/files. Twenty-four of them fail on
+# a healthy JotPanel, most because they try to create an account and public
+# sign-ups are correctly closed. `npm test` pointed at it, so the first thing a
+# customer did after installing was watch their working panel report two dozen
+# failures.
+#
+# It stays in the repository — it is still the only thing that exercises those
+# routes end to end — and it stops being the thing a customer runs. What they
+# run now is the set of suites copied back into the stage by the build script,
+# which pass with nothing running.
+app/backend/test.js
+
+# ── A guest telling its pool host where it moved to ──────────────
+#
+# Every boot, jotpanel-announce tells a pool host this guest's new address,
+# because libvirt's dnsmasq does not reliably hand a rebooted guest the same
+# lease. A JotPanel customer's machine has no pool host and did not move: only
+# scripts/build-navigator-image.sh installs and enables this unit, and
+# app/deploy/install.sh has never mentioned it. It was shipped to panel
+# customers as a file nothing on their machine would ever start.
+app/deploy/jotpanel-announce.js
+app/deploy/jotpanel-announce.service

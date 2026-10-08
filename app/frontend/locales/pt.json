@@ -1617,5 +1617,21 @@
   "Projects": "Projetos",
   "Proposed:": "Proposto:",
   "Proposing": "Proposing",
-  "Create a site and its certificate check will appear here.": "Crie um site e o seu certificado aparecerá aqui."
+  "Create a site and its certificate check will appear here.": "Crie um site e o seu certificado aparecerá aqui.",
+  "A code from your authenticator app, or a recovery code": "Um código do seu aplicativo autenticador, ou um código de recuperação",
+  "Change my password": "Alterar minha senha",
+  "Change your password": "Alterar sua senha",
+  "Changing your password…": "Alterando sua senha…",
+  "Replace the password you sign in with. You will need the one you have now, in the same step.": "Substitua a senha com a qual você faz login. Você precisará da que tem agora, na mesma etapa.",
+  "The password you have now": "A senha que você tem agora",
+  "The two new passwords do not match.": "As duas novas senhas não coincidem.",
+  "The two new passwords do not match. Check the second box.": "As duas novas senhas não coincidem. Verifique o segundo campo.",
+  "Your new password": "Sua nova senha",
+  "Your new password again": "Sua nova senha novamente",
+  "Your passkeys are untouched by this.": "Suas chaves de acesso não são afetadas por isso.",
+  "Your password is changed.": "Sua senha foi alterada.",
+  "Your second factor stays on afterwards, and your passkeys are untouched.": "Seu segundo fator continua ativo depois, e suas chaves de acesso não são alteradas.",
+  "a code is needed too": "um código também é necessário",
+  "at least {count} characters": "pelo menos {count} caracteres",
+  "Your password is changed. Sessions already signed in elsewhere stay signed in until they expire.": "Sua senha foi alterada. As sessões já conectadas em outros lugares permanecem conectadas até expirarem."
 }

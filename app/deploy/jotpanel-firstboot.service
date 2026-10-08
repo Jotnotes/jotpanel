@@ -1,0 +1,34 @@
+[Unit]
+# Generate this guest's own secrets before the panel ever starts.
+#
+# Enabled in the image, unlike jotpanel-enroll.service: every guest needs its
+# own secrets, whether or not it was given an enrollment ticket, and a guest
+# that boots without them does not come up at all.
+Description=JotPanel first boot (per-guest secrets)
+Documentation=file:///opt/jotpanel/docs/NAVIGATOR_IMAGE_PROVISIONING.md
+# After cloud-init, because the hostname it sets is written into .env.
+After=cloud-init.service local-fs.target
+Wants=cloud-init.service
+# The ordering that matters. The panel must never see a missing secret, and
+# must never see one shared with another customer's guest.
+Before=jotpanel.service
+# RequiredBy belongs in [Install], not [Unit]; systemd logged
+#   Unknown key name 'RequiredBy' in section 'Unit', ignoring
+# on the first real guest. Moved below, where it creates the .requires symlink
+# that actually makes the panel depend on this having run.
+# And before nginx, because this is what writes the certificate its HTTPS
+# config points at. nginx starting first would come up without the TLS site and
+# the guest would answer only on port 80, which the pool host's collector does
+# not poll - so the guest would enroll and then read as unreachable.
+Before=nginx.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/jotpanel/app/deploy/jotpanel-firstboot.sh
+User=root
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=jotpanel.service

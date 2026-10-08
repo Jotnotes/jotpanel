@@ -16,12 +16,17 @@
 // gemini-1.5-pro for two generations after they were superseded, and nothing
 // complained: a preference for a model that no longer exists is skipped rather
 // than raised, so the list silently shortened instead of breaking.
+// DeepSeek is last in the roles it is strong at, not first on price. It is
+// cheaper than everything above it, so ranking it on cost would quietly send a
+// customer's prompts to a provider in another jurisdiction. Last means it is
+// reached only by somebody who added a DeepSeek key on purpose, and adding the
+// key is the consent.
 const ROLE_ROUTES = Object.freeze({
   design:     [['openai', 'gpt-6-astra'], ['anthropic', 'claude-sonnet-5'], ['gemini', 'gemini-3.8-flash']],
-  reasoning:  [['openai', 'gpt-6-astra'], ['anthropic', 'claude-sonnet-5'], ['anthropic', 'claude-opus-5'], ['xai', 'grok-4.7']],
-  coding:     [['anthropic', 'claude-sonnet-5'], ['openai', 'gpt-6-sol'], ['groq', 'llama-3.3-70b-versatile']],
+  reasoning:  [['openai', 'gpt-6-astra'], ['anthropic', 'claude-sonnet-5'], ['anthropic', 'claude-opus-5'], ['xai', 'grok-4.7'], ['deepseek', 'deepseek-reasoner']],
+  coding:     [['anthropic', 'claude-sonnet-5'], ['openai', 'gpt-6-sol'], ['groq', 'llama-3.3-70b-versatile'], ['deepseek', 'deepseek-reasoner']],
   research:   [['gemini', 'gemini-3.8-flash'], ['openai', 'gpt-6-sol'], ['anthropic', 'claude-sonnet-5']],
-  mechanical: [['gemini', 'gemini-3.5-flash-lite'], ['groq', 'llama-3.3-70b-versatile'], ['openai', 'gpt-6-luna'], ['anthropic', 'claude-haiku-4-5']],
+  mechanical: [['gemini', 'gemini-3.5-flash-lite'], ['groq', 'llama-3.3-70b-versatile'], ['openai', 'gpt-6-luna'], ['anthropic', 'claude-haiku-4-5'], ['deepseek', 'deepseek-chat']],
   chat:       [['groq', 'llama-3.3-70b-versatile'], ['gemini', 'gemini-3.5-flash-lite'], ['anthropic', 'claude-haiku-4-5'], ['openai', 'gpt-6-luna']],
 });
 

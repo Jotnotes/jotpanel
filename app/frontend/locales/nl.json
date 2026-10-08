@@ -1617,5 +1617,21 @@
   "{label} was refused: {why}": "{label} werd geweigerd: {why}",
   "{n} more things are wrong with this domain.": "er zijn nog {n} dingen mis met deze domeinnaam.",
   "🔒 Keys are kept in this server's encrypted vault, never in your browser, and are shown back only as a fingerprint. They are sent only to the provider's own API. The primary provider is used for Echo and all AI features.": "🔒 Sleutels worden bewaard in de versleutelde kelders van deze server, nooit in uw browser, en worden alleen weergegeven als een vingerafdruk. Ze worden alleen gestuurd naar het eigen API van de leverancier. De primaire leverancier wordt gebruikt voor Echo en alle AI-functies.",
-  "Create a site and its certificate check will appear here.": "Maak een site aan en de certificaatcontrole verschijnt hier."
+  "Create a site and its certificate check will appear here.": "Maak een site aan en de certificaatcontrole verschijnt hier.",
+  "A code from your authenticator app, or a recovery code": "Een code uit uw authenticator-app, of een herstelcode",
+  "Change my password": "Mijn wachtwoord wijzigen",
+  "Change your password": "Uw wachtwoord wijzigen",
+  "Changing your password…": "Uw wachtwoord wordt gewijzigd…",
+  "Replace the password you sign in with. You will need the one you have now, in the same step.": "Vervang het wachtwoord waarmee u inlogt. U hebt daarbij in dezelfde stap het wachtwoord nodig dat u nu hebt.",
+  "The password you have now": "Het wachtwoord dat u nu hebt",
+  "The two new passwords do not match.": "De twee nieuwe wachtwoorden zijn niet gelijk.",
+  "The two new passwords do not match. Check the second box.": "De twee nieuwe wachtwoorden zijn niet gelijk. Controleer het tweede veld.",
+  "Your new password": "Uw nieuwe wachtwoord",
+  "Your new password again": "Uw nieuwe wachtwoord opnieuw",
+  "Your passkeys are untouched by this.": "Uw passkeys blijven hierdoor ongewijzigd.",
+  "Your password is changed.": "Uw wachtwoord is gewijzigd.",
+  "Your second factor stays on afterwards, and your passkeys are untouched.": "Uw tweede factor blijft daarna aan staan, en uw passkeys blijven ongewijzigd.",
+  "a code is needed too": "er is ook een code nodig",
+  "at least {count} characters": "minimaal {count} tekens",
+  "Your password is changed. Sessions already signed in elsewhere stay signed in until they expire.": "Uw wachtwoord is gewijzigd. Sessies die elders al zijn aangemeld, blijven aangemeld totdat ze verlopen."
 }

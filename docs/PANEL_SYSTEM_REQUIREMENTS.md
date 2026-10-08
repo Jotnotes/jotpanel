@@ -1,6 +1,8 @@
 # System requirements — the free panel
 
-**Canonical for what a machine needs to run JotPanel.** Written 2026-08-27. This is the
+**Canonical for what a machine needs to run JotPanel.** Written 2026-08-27. Navigator is the
+other product from this tree and has its own page, `NAVIGATOR_SYSTEM_REQUIREMENTS.md`; the floors
+the installer enforces are shared, because it is one installer. This is the
 source for the knowledge base article and the website copy, so it is written to be readable by
 somebody choosing a VPS rather than by somebody reading code.
 

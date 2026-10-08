@@ -39,6 +39,7 @@ while IFS='=' read -r legacy_name legacy_value; do
 done < <(env)
 
 VERSION="1.2.0"
+IMAGE_BUILD=0
 INSTALL_DIR="${JOTPANEL_INSTALL_DIR:-/opt/jotpanel}"
 BUNDLE_URL="${JOTPANEL_BUNDLE_URL:-}"
 BUNDLE_FILE="${JOTPANEL_BUNDLE_FILE:-}"
@@ -70,10 +71,14 @@ CERT_STAGING=0
 # manages swap themselves turns it off.
 PROVISION_SWAP=1
 SWAPFILE="${JOTPANEL_SWAPFILE:-/swapfile}"
-# This is the panel installer, so it installs the panel. --shell desktop is
-# the same install with the optional desktop shell in front of it; nothing else
-# about the box changes, which is what makes the upgrade a one-line switch.
+# One installer, two products. The bundle says which one it is in app/PRODUCT,
+# and that decides the default shell once the bundle is unpacked: a Navigator
+# bundle installs the desktop, a panel bundle installs the panel. Either can be
+# overridden with --shell or JOTPANEL_SHELL, so this is a default and not a
+# decision; nothing else about the box changes, which is what makes the upgrade
+# a one-line switch.
 SHELL_MODE="${JOTPANEL_SHELL:-panel}"
+SHELL_CHOSEN="${JOTPANEL_SHELL:+1}"
 # Nobody at the keyboard is the normal case for an installer: a hosting company
 # runs this from its own provisioning, over ssh, or from a machine image. Asking
 # `read` for a password there does not prompt anybody, it fails, and the script
@@ -391,6 +396,13 @@ Options:
                          because without it a memory spike makes the kernel
                          kill the largest process rather than slow the machine
                          down.
+  --image-build          Install into a golden image rather than onto a running
+                         machine: units are enabled but not started, and no
+                         owner, certificate, sign-in link or secret is created,
+                         because each of those would otherwise be identical in
+                         every guest made from the image. Implies
+                         --non-interactive. Used by
+                         scripts/build-navigator-image.sh.
   --non-interactive      Refuse missing values instead of prompting. The
                          password is generated when it is omitted, so a
                          provisioning system never has to invent one.
@@ -411,7 +423,19 @@ while [[ $# -gt 0 ]]; do
     --bundle-file) BUNDLE_FILE="${2:-}"; shift 2 ;;
     --bundle-sha256) BUNDLE_SHA256="${2:-}"; shift 2 ;;
     --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
-    --shell) SHELL_MODE="${2:-}"; shift 2 ;;
+    # Build a golden image rather than install a running machine. Everything
+    # that belongs to the SOFTWARE is done - packages, the release, the
+    # application, the units, the nginx config, the privileged service - and
+    # nothing that belongs to a PARTICULAR machine: no service is started, no
+    # certificate is fetched, and no owner is created. Those are first-boot
+    # facts and an image that carried them would carry them into every guest.
+    #
+    # Added 2026-10-04, after an image built without the installer produced a
+    # guest that booted perfectly and had no jotpanel.service, no jotpanel user
+    # and no nginx config. It is a mode of THIS script on purpose: the thing
+    # that knows how to install Navigator should stay the only thing that does.
+    --image-build) IMAGE_BUILD=1; NON_INTERACTIVE=1; shift ;;
+    --shell) SHELL_MODE="${2:-}"; SHELL_CHOSEN=1; shift 2 ;;
     --cert-staging) CERT_STAGING=1; shift ;;
     --with-resident) WITH_RESIDENT=1; shift ;;
     --no-swap) PROVISION_SWAP=0; shift ;;
@@ -506,6 +530,16 @@ fi
 # itself, and the domain is attached later from inside.
 if [[ -n "$DOMAIN" ]]; then
   [[ "$DOMAIN" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$ ]] || die "That is not a valid public domain. Leave --domain off to install without one."
+elif [[ $IMAGE_BUILD -eq 1 ]]; then
+  # An image has no address and no name, and must not pretend to. There is no
+  # network inside virt-customize to ask ipify, and `hostname -I` answers for
+  # the BUILD host, which would bake the builder's address into every guest.
+  # `_` is nginx's catch-all server_name, which is the correct answer for a
+  # machine that will answer on whatever address it is given; jotpanel-firstboot
+  # writes the guest's real DOMAIN into its own .env.
+  NO_DOMAIN=1
+  DOMAIN="_"
+  say "Image build: no domain and no address are baked in; the guest takes its own on first boot."
 else
   NO_DOMAIN=1
   PUBLIC_IP="$(curl -fsS --max-time 8 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')"
@@ -514,7 +548,12 @@ else
   say "No domain given. The panel will answer on $PUBLIC_IP with its own certificate, and a domain can be attached from inside later."
 fi
 [[ "$SHELL_MODE" == "panel" || "$SHELL_MODE" == "desktop" ]] || die "--shell must be panel or desktop."
-[[ "$OWNER_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "A valid owner email is required."
+# An image has no owner: the account is created on the guest at first boot, by
+# jotpanel-enroll.js through the bootstrap route, so there is nobody to validate
+# here and a placeholder would be a fake fact baked into every guest.
+if [[ $IMAGE_BUILD -eq 0 ]]; then
+  [[ "$OWNER_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || die "A valid owner email is required."
+fi
 [[ ${#OWNER_PASSWORD} -ge 12 ]] || die "The initial owner password must be at least 12 characters."
 
 case "$(uname -m)" in
@@ -651,6 +690,21 @@ done
 install -d -m 0750 -o jotpanel -g jotpanel "$INSTALL_DIR" "$INSTALL_DIR/staging" "$INSTALL_DIR/app" "$INSTALL_DIR/data" "$INSTALL_DIR/uploads" "$INSTALL_DIR/logs" "$INSTALL_DIR/backups"
 tar -xzf "$TMP_DIR/jotpanel.tar.gz" -C "$INSTALL_DIR/app" --strip-components=1
 [[ -f "$INSTALL_DIR/app/backend/server.js" ]] || die "Release layout is invalid: app/backend/server.js was not found."
+# What this bundle is. Only consulted when nobody said which shell they wanted,
+# so an explicit --shell or JOTPANEL_SHELL still wins.
+BUNDLE_PRODUCT="$(cat "$INSTALL_DIR/app/PRODUCT" 2>/dev/null || echo panel)"
+if [[ -z "${SHELL_CHOSEN:-}" && "$BUNDLE_PRODUCT" == navigator ]]; then
+  SHELL_MODE=desktop
+fi
+# A Navigator bundle without its desktop would install and then serve nothing at
+# the root, which reads as a broken box rather than as a missing file.
+if [[ "$SHELL_MODE" == desktop && ! -f "$INSTALL_DIR/app/frontend/arca-webos.jsx" ]]; then
+  die "This bundle has no desktop in it, so --shell desktop cannot be served. Install the Navigator bundle, or use --shell panel."
+fi
+PRODUCT_LABEL="$( [[ "$SHELL_MODE" == desktop ]] && printf 'JotNotes Navigator' || printf 'JotPanel' )"
+# Said here rather than in the opening banner, because which product this is
+# comes out of the bundle and the bundle is only on disk now.
+ok "Installing $PRODUCT_LABEL"
 [[ -f "$INSTALL_DIR/app/backend/ops-daemon.js" ]] || die "Release layout is invalid: app/backend/ops-daemon.js was not found."
 npm ci --prefix "$INSTALL_DIR/app/backend" --omit=dev --no-audit --no-fund
 npm ci --prefix "$INSTALL_DIR/app/frontend" --no-audit --no-fund
@@ -776,10 +830,17 @@ push @{$nrconf{blacklist_rc}}, qr(^jotpanel\.service$), qr(^jotpanel-ops\.servic
 NRCONF
   chmod 0644 /etc/needrestart/conf.d/jotpanel.conf
 fi
-systemctl daemon-reload
-systemctl enable --now jotpanel-ops.service
-for _ in {1..30}; do [[ -S "$OPS_SOCKET" ]] && break; sleep 1; done
-[[ -S "$OPS_SOCKET" ]] || die "The privileged operations service did not create $OPS_SOCKET. Run: journalctl -u jotpanel-ops -n 100"
+if [[ $IMAGE_BUILD -eq 1 ]]; then
+  # `enable` is a symlink and works without a running systemd; `--now` is a
+  # start and does not. There is no socket to wait for inside an image.
+  systemctl enable jotpanel-ops.service
+  ok "Privileged operations service installed and enabled, not started (image build)"
+else
+  systemctl daemon-reload
+  systemctl enable --now jotpanel-ops.service
+  for _ in {1..30}; do [[ -S "$OPS_SOCKET" ]] && break; sleep 1; done
+  [[ -S "$OPS_SOCKET" ]] || die "The privileged operations service did not create $OPS_SOCKET. Run: journalctl -u jotpanel-ops -n 100"
+fi
 
 ops_job() {
   # $1 caller (root or jotpanel), $2 job name. Prints the raw JSON reply.
@@ -795,6 +856,21 @@ ops_job() {
 }
 ops_ok() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.exit(JSON.parse(s).ok===true?0:1)}catch{process.exit(1)}})'; }
 
+# EVERY PROBE BELOW NEEDS THE SERVICE RUNNING, and in an image nothing is.
+# They are the checks that catch a socket the panel user cannot reach, a
+# firewall only root can read and a journal the panel cannot open - real
+# defects, caught here on a real install, and unanswerable in an appliance with
+# no systemd. Skipped rather than faked.
+#
+# WHAT THAT COSTS, said plainly: an image is NOT verified to have a working
+# privileged socket. That verification moves to the guest's first boot, which is
+# the first moment it can be true, and until a first-boot probe exists it is a
+# gap rather than a guarantee. See docs/NAVIGATOR_IMAGE_PROVISIONING.md.
+if [[ $IMAGE_BUILD -eq 1 ]]; then
+  FIREWALL_PROBE="not_probed_in_image"
+  LOG_PROBE="not_probed_in_image"
+  ok "Privileged socket probes skipped: nothing is running in an image build"
+else
 ops_job root probe.service | ops_ok || die "The privileged operations service is running but did not answer probe.service."
 # The check that actually matters. The panel runs as jotpanel, and an operations
 # service only root can reach is a service the panel does not have.
@@ -825,8 +901,9 @@ else
   LOG_PROBE="failed"
   warn "The journal is NOT readable with panel privilege, so the panel will hide the journal rather than draw a tool that cannot work."
 fi
+fi
 
-step "7/9  Starting JotPanel behind nginx"
+step "7/9  Starting $PRODUCT_LABEL behind nginx"
 cat > /etc/nginx/conf.d/jotpanel.conf <<EOF
 server {
   listen 80;
@@ -864,6 +941,10 @@ cat > /etc/systemd/system/nginx.service.d/restart.conf <<'UNIT'
 Restart=always
 RestartSec=3
 UNIT
+if [[ $IMAGE_BUILD -eq 1 ]]; then
+  systemctl enable jotpanel nginx
+  ok "$PRODUCT_LABEL and nginx installed and enabled, not started (image build)"
+else
 systemctl daemon-reload
 
 systemctl enable --now jotpanel nginx
@@ -874,6 +955,47 @@ systemctl enable --now jotpanel nginx
 wait_for_http "http://127.0.0.1:9999/health" "JotPanel" --units "jotpanel" \
   || die "JotPanel did not pass its local health check: $READY_ERROR. Run: journalctl -u jotpanel -n 100"
 ok "JotPanel is healthy on 127.0.0.1:9999"
+fi
+
+if [[ $IMAGE_BUILD -eq 1 ]]; then
+  # An image build FINISHES HERE, and that is the point of the mode rather than
+  # a shortcut. Everything left below is a fact about ONE machine: the owner
+  # account, the certificate, the single-use sign-in link, and a report that
+  # states panel_health=verified and ops_service=answering. Baked into an image
+  # those become the same owner, the same private key and the same link in every
+  # customer's guest - the class of mistake image hygiene exists to prevent -
+  # and the report's claims would simply be false, since nothing was started.
+  #
+  # They are created on the guest instead: jotpanel-firstboot.sh writes that
+  # guest's own secrets and jotpanel-enroll.js creates the operator through the
+  # bootstrap route.
+  #
+  # Exiting rather than gating the rest also keeps `set -u` honest: the probe
+  # variables the report prints are assigned in the steps above that an image
+  # build does not run.
+  step "8/8  Sealing the image"
+  cat > "$INSTALL_DIR/install-report.txt" <<EOF
+$PRODUCT_LABEL image build report
+product=$(cat "$INSTALL_DIR/app/PRODUCT" 2>/dev/null || echo panel)
+image_built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+installer_version=$VERSION
+shell=$SHELL_MODE
+install_dir=$INSTALL_DIR
+bundle_sha256=$ACTUAL_SHA256
+node=$(node --version)
+state=installed_not_started
+owner=created_on_first_boot
+certificate=created_on_first_boot
+secrets=created_on_first_boot
+EOF
+  chmod 0640 "$INSTALL_DIR/install-report.txt"
+  ok "Units installed and enabled; nothing started"
+  ok "No owner, no certificate, no sign-in link and no secrets are in this image"
+  printf '\n  %s is installed into %s as an image.\n' "$PRODUCT_LABEL" "$INSTALL_DIR"
+  printf '  It is deliberately not running. A guest made from it generates its own\n'
+  printf '  secrets and creates its own owner on first boot.\n\n'
+  exit 0
+fi
 
 step "8/9  Creating the one owner and certificate"
 OWNER_JSON="$TMP_DIR/owner.json"
@@ -991,7 +1113,7 @@ fi
 
 step "9/9  Writing the installation report"
 cat > "$INSTALL_DIR/install-report.txt" <<EOF
-JotPanel installation report
+$PRODUCT_LABEL installation report
 product=$(cat "$INSTALL_DIR/app/PRODUCT" 2>/dev/null || echo panel)
 installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 installer_version=$VERSION
@@ -1021,7 +1143,7 @@ EOF
 chmod 0640 "$INSTALL_DIR/install-report.txt"
 chown root:jotpanel "$INSTALL_DIR/install-report.txt"
 
-printf '\n  JotPanel is ready: https://%s\n' "$DOMAIN"
+printf '\n  %s is ready: https://%s\n' "$PRODUCT_LABEL" "$DOMAIN"
 if [[ $NO_DOMAIN -eq 1 ]]; then
   # The warning is unavoidable on an address, and clicking through one without
   # looking is a habit worth not teaching, so the fingerprint is printed here.
@@ -1051,5 +1173,5 @@ if [[ -n "$JSON_OUT" ]]; then
   printf '  Machine-readable result: %s\n' "$JSON_OUT"
 fi
 [[ $CERT_STAGING -eq 1 ]] && printf '  The certificate is from the staging authority and your browser will warn about it.\n'
-printf '  JotPanel has not registered or called the assistant service. Register inside the Licence screen only when you want Echo.\n'
+printf '  %s has not registered or called the assistant service. Register inside the Licence screen only when you want Echo.\n' "$PRODUCT_LABEL"
 printf '  Installation report: %s/install-report.txt\n\n' "$INSTALL_DIR"

@@ -76,7 +76,7 @@ assert.ok(mailAdminSource.includes('Generate a password') && mailAdminSource.inc
   'the mailbox form must offer server-side password generation');
 // The desktop is a separate product, absent from the public JotPanel repository.
 const HAS_DESKTOP = (await import('node:fs')).existsSync(new URL('./arca-webos.jsx', import.meta.url));
-const desktop = HAS_DESKTOP ? await load(`export { default as ArcaWebOS, LoginScreen } from './arca-webos.jsx';`) : null;
+const desktop = HAS_DESKTOP ? await load(`export { default as ArcaWebOS, LoginScreen, ProjectManagerApp } from './arca-webos.jsx';`) : null;
 
 const user = { id: 1, email: 'owner@example.test', name: 'Owner' };
 let rendered = 0;
@@ -119,6 +119,17 @@ rendered++;
 // 3. The desktop, which imports the panel rather than containing it.
 for (const [name, el] of HAS_DESKTOP ? [['LoginScreen', React.createElement(desktop.LoginScreen, { onAuth(){} })], ['ArcaWebOS', React.createElement(desktop.ArcaWebOS)]] : []) {
   assert.ok(renderToString(el).length > 500, `${name} rendered almost nothing`);
+  rendered++;
+}
+
+// 3b. The project manager's own screen, rendered on its own rather than only as
+// part of the shell. It is the one surface that draws nothing until a fetch
+// answers, and renderToString never runs an effect, so this proves the empty
+// state draws rather than throwing on a null brief — which is exactly what a
+// person sees for the first second every time they open it.
+if (HAS_DESKTOP) {
+  const empty = renderToString(React.createElement(desktop.ProjectManagerApp));
+  assert.match(empty, /No projects yet/, 'the project manager does not draw its empty state');
   rendered++;
 }
 

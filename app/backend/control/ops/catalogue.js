@@ -1556,8 +1556,18 @@ function list(value, field) {
   return entries;
 }
 
+// A folder inside the site, never a path on the server.
+//
+// This used to strip a leading slash and carry on, so documentRoot
+// "/var/www/shop.example.com/public" was accepted, approved and executed as a
+// four-deep folder mirrored inside the site — not the path the person typed, and
+// on a real install a site that answered 404 for ever. Refused here, at the
+// proposal, which is the only place a person can still fix the typo.
 function relativeRoot(value) {
-  const clean = String(required(value, 'document root')).trim().replace(/^\/+/, '');
+  const clean = String(required(value, 'document root')).trim();
+  if (clean.startsWith('/')) {
+    throw new Error('The document root is a folder inside the site, not a path on the server: write it as public, or public_html/shop, with no leading slash.');
+  }
   if (!clean || clean.length > 160 || clean.split('/').some(part => !part || part === '.' || part === '..' || !/^[A-Za-z0-9._-]+$/.test(part))) {
     throw new Error('document root must be a relative folder path using letters, digits, dots, dashes and underscores');
   }

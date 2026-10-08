@@ -163,7 +163,14 @@ step "Building the release bundle"
 # each run its own; the former ARCA_BUNDLE spelling remains a fallback.
 BUNDLE="${JOTPANEL_BUNDLE:-${ARCA_BUNDLE:-$ROOT_DIR/dist/jotpanel.tar.gz}}"
 mkdir -p "$ROOT_DIR/dist"
-"$SCRIPT_DIR/build-customer-bundle.sh" "$BUNDLE" >/dev/null
+# The bundle has to be the product being installed. This built the panel bundle
+# unconditionally and then passed --shell desktop to the installer, so a desktop
+# install got a box whose .env said desktop and whose bundle had no desktop in
+# it. The backend was healthy and the login answered, so the matrix scored it a
+# pass while the root page served nothing at all.
+BUNDLE_PRODUCT_FLAGS=()
+[[ "$SHELL_MODE" == "desktop" ]] && BUNDLE_PRODUCT_FLAGS=(--product navigator)
+"$SCRIPT_DIR/build-customer-bundle.sh" "${BUNDLE_PRODUCT_FLAGS[@]+${BUNDLE_PRODUCT_FLAGS[@]}}" "$BUNDLE" >/dev/null
 BUNDLE_SHA="$(awk '{print $1}' "$BUNDLE.sha256")"
 printf '   %s  %s\n' "$(du -h "$BUNDLE" | cut -f1)" "$BUNDLE_SHA"
 

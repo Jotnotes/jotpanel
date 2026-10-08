@@ -9,6 +9,8 @@
 // clean machine is really in, not against a database somebody built by hand.
 
 const assert = require('assert/strict');
+const fs = require('fs');
+const path = require('path');
 const Database = require('better-sqlite3');
 const { createOwnershipService } = require('./ownership');
 const { createEntitlementsService } = require('./entitlements');
@@ -258,6 +260,121 @@ function testItRefusesRatherThanGuesses() {
   console.log('ok  called wrong, it refuses rather than quietly doing nothing');
 }
 
+// ── 10. The bootstrap surface can say what it means ──────────────────
+//
+// The installer's four calls are mounted on their own express app, built by hand
+// beside `app` rather than inherited from it, and that app had no language
+// middleware. Every handler in this file says what it means through `req.t`, so
+// the whole surface answered `TypeError: req.t is not a function` wherever it
+// tried to speak: creating the first owner twice, a missing field, an unknown
+// account id, a wrong admin key, a request a proxy had touched, and an unknown
+// path. Measured over real HTTP on 127.0.0.1, not inferred.
+//
+// The one thing that still worked was the success path of each route, because
+// none of those three lines call `req.t`. That is why an install passed and the
+// defect sat here: the installer only ever walks the happy path.
+//
+// Asserted against the source, in the style of `listeningChain.test.js`,
+// because the thing being asserted is which middleware is on which app and in
+// what order, and standing two listeners up to read an order is a slower way to
+// learn the same fact. This test must pass with no server running.
+const SERVER = path.join(__dirname, '..', 'server.js');
+
+// The bootstrap listener's own block: from the port it reads to the main app's
+// health route, which is the next thing in the file.
+function bootstrapBlock(source) {
+  const start = source.indexOf('const BOOTSTRAP_PORT');
+  assert.ok(start > 0, 'the bootstrap listener has gone from server.js');
+  const end = source.indexOf("app.get('/health'", start);
+  assert.ok(end > start, 'the bootstrap block no longer ends where this test expects');
+  return source.slice(start, end);
+}
+
+function testTheBootstrapSurfaceCanSayWhatItMeans() {
+  const source = fs.readFileSync(SERVER, 'utf8');
+  const block = bootstrapBlock(source);
+
+  // Defined once and used by both apps. Two inline copies are the same defect
+  // waiting for whoever adds the third surface.
+  assert.match(source, /const attachLanguage = \(req, res, next\) => \{ req\.t =/,
+    'the language middleware is not one named thing both apps can share');
+  assert.ok(source.includes('app.use(attachLanguage);'),
+    'the main app no longer uses the shared language middleware');
+  assert.ok(block.includes('bootstrap.use(attachLanguage);'),
+    'the bootstrap surface has no language middleware, so every refusal and every 404 on it answers a TypeError instead of its own words');
+
+  // A middleware mounted after the thing it serves is not mounted at all.
+  const attached = block.indexOf('bootstrap.use(attachLanguage);');
+  assert.ok(attached < block.indexOf("bootstrap.use('/admin/api', admin)"),
+    'the language is attached after the admin router, so none of the installer\'s routes see it');
+  assert.ok(attached < block.indexOf('res.status(404)'),
+    'the language is attached after the bootstrap 404 handler, so an unknown path answers a TypeError');
+
+  // And it is the real translator, not a stub that hands English back: the
+  // dictionaries are the front end's and the key is the English sentence.
+  const { translate } = require('./messages');
+  assert.equal(translate({ headers: { 'x-jotpanel-language': 'fr' } }, 'Not found'), 'Non trouvé',
+    'the translator the middleware installs does not translate');
+  console.log('ok  the loopback bootstrap surface has the same language middleware the main app has');
+}
+
+// ── 11. And it still says it in the person's language ────────────────
+//
+// The cheap way to make the TypeError go away is to delete the `req.t` calls or
+// write the English in by hand. That trades a crash for a message the half of
+// the world that does not read English cannot act on, at the exact moment they
+// most need to — which is the reason `control/messages.js` exists. These are the
+// sentences the bootstrap surface refuses with; they stay translated.
+function testTheBootstrapSurfaceStillSpeaksTheLanguageAsked() {
+  const source = fs.readFileSync(SERVER, 'utf8');
+  const block = bootstrapBlock(source);
+
+  const gate = source.slice(source.indexOf('function adminAuth'), source.indexOf('function isOperatorIdentity'));
+  assert.ok(gate.includes("req.t('This is administered on the machine itself, not over the network')"),
+    'the bootstrap gate hardcodes its non-local refusal instead of translating it');
+  assert.ok(gate.includes("req.t('Forbidden')"),
+    'the bootstrap gate hardcodes its wrong-key refusal instead of translating it');
+
+  const router = source.slice(source.indexOf('const admin = express.Router();'), source.indexOf('const BOOTSTRAP_PORT'));
+  const spoken = (router.match(/req\.t\(/g) || []).length;
+  // Five, and each one is named below or in the next assertions: the 409, the
+  // missing field, the duplicate email, and a "Not found" for each of the two
+  // routes that take an account id.
+  assert.ok(spoken >= 5, `the installer's routes speak through req.t in only ${spoken} places; a refusal was hardcoded or deleted rather than translated`);
+  assert.ok(router.includes("req.t('This machine already has accounts."),
+    'creating the first owner twice no longer explains itself in the caller\'s language');
+  assert.ok(router.includes("req.t('Missing fields')"), 'a missing field no longer explains itself');
+  assert.ok(block.includes("req.t('Not found')"), 'the bootstrap 404 no longer explains itself');
+  console.log('ok  the bootstrap surface translates its refusals rather than hardcoding English');
+}
+
+// ── 12. Nothing about the surface's reach changed ────────────────────
+//
+// Adding a middleware to this app is the kind of change that could quietly widen
+// it, so the three properties that keep the surface shut are asserted beside it:
+// its own listener bound to loopback, `off` switching it off entirely, and the
+// router never mounted on the app nginx proxies.
+function testTheBootstrapSurfaceIsStillShut() {
+  const source = fs.readFileSync(SERVER, 'utf8');
+  const block = bootstrapBlock(source);
+
+  assert.match(block, /bootstrap\.listen\(BOOTSTRAP_PORT, '127\.0\.0\.1'/,
+    'the bootstrap listener no longer binds loopback only');
+  assert.match(block, /!== 'off'\) \{/, 'the bootstrap surface can no longer be switched off');
+  assert.ok(block.indexOf("bootstrap.use('/admin/api', admin)") > block.indexOf("!== 'off'"),
+    'the admin router is mounted outside the off switch');
+  assert.ok(!/app\.use\(\s*['"]\/admin\/api['"]\s*,\s*admin\s*\)/.test(source),
+    'the bootstrap router is also mounted on the app nginx proxies');
+
+  // The gate is the router's first middleware, and the language middleware went
+  // in front of the router rather than between the gate and the handlers.
+  assert.ok(source.indexOf('admin.use(adminAuth);') < source.indexOf("admin.post('/accounts'"),
+    'the bootstrap gate no longer runs before the routes it guards');
+  assert.ok(block.indexOf('bootstrap.use(attachLanguage);') < block.indexOf("bootstrap.use('/admin/api', admin)"),
+    'the language middleware was put inside the guarded router rather than in front of it');
+  console.log('ok  loopback-only, off still means off, and the router is on no other app');
+}
+
 function run() {
   testFirstOwnerHoldsTheMachine();
   testOwnershipCannotBeClaimedAgain();
@@ -268,6 +385,9 @@ function run() {
   testNoBoundaryWasWeakened();
   testTheCeremonyIsInTheRecord();
   testItRefusesRatherThanGuesses();
+  testTheBootstrapSurfaceCanSayWhatItMeans();
+  testTheBootstrapSurfaceStillSpeaksTheLanguageAsked();
+  testTheBootstrapSurfaceIsStillShut();
   console.log('owner bootstrap tests passed');
 }
 

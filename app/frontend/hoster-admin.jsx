@@ -32,7 +32,7 @@ const ROOT = '/hoster';
 // back to its sign-in; a 403 means the caller is signed in and is not the
 // operator, which is a different sentence and must not look like a login
 // problem.
-async function api(path, opts = {}) {
+export async function api(path, opts = {}) {
   const base = (readPanelStorage("server") || '').replace(/\/$/, '');
   const response = await fetch(base + path, {
     ...opts,
@@ -118,11 +118,11 @@ const CSS = `
 `;
 
 // ── Little shared pieces ──────────────────────────────────────────
-const Card = ({ label, value, sub }) => (
+export const Card = ({ label, value, sub }) => (
   <div className="ha-card"><div className="k">{label}</div><div className="v">{value}</div>{sub && <div className="s">{sub}</div>}</div>
 );
-const Tag = ({ tone = 'mute', children }) => <span className={`ha-tag ${tone}`}>{children}</span>;
-const Panel = ({ title, note, children }) => (
+export const Tag = ({ tone = 'mute', children }) => <span className={`ha-tag ${tone}`}>{children}</span>;
+export const Panel = ({ title, note, children }) => (
   <section className="ha-panel">
     <div className="ha-panel-h"><strong>{title}</strong>{note && <span>{note}</span>}</div>
     <div className="ha-panel-b">{children}</div>
@@ -136,7 +136,7 @@ const bytes = n => {
   while (x >= 1024 && i < units.length - 1) { x /= 1024; i += 1; }
   return `${x >= 10 || i === 0 ? Math.round(x) : x.toFixed(1)} ${units[i]}`;
 };
-const when = value => {
+export const when = value => {
   if (!value) return '—';
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
@@ -146,7 +146,7 @@ const when = value => {
 // states are separate on purpose: loading is not empty, and an error is not an
 // empty list. A screen that renders "0 accounts" because a request failed is
 // the class of bug this product is built to avoid.
-function useReading(load, deps = []) {
+export function useReading(load, deps = []) {
   const [state, setState] = useState({ status: 'loading', data: null, error: '' });
   const run = useCallback(() => {
     let live = true;
@@ -159,8 +159,8 @@ function useReading(load, deps = []) {
   return [state, run];
 }
 
-function Loading({ what }) { return <div className="ha-empty">Reading {what}…</div>; }
-function Failed({ error }) { return <div className="ha-err">{error}</div>; }
+export function Loading({ what }) { return <div className="ha-empty">Reading {what}…</div>; }
+export function Failed({ error }) { return <div className="ha-err">{error}</div>; }
 
 // ── Overview ──────────────────────────────────────────────────────
 function Overview() {
@@ -592,19 +592,51 @@ const SECTIONS = [
     ['audit', 'document', 'Audit record', Audit],
   ] },
 ];
-const FLAT = SECTIONS.flatMap(g => g.items);
-const sectionFromPath = () => {
-  const wanted = window.location.pathname.replace(ROOT, '').replace(/^\/+|\/+$/g, '');
-  return FLAT.some(([id]) => id === wanted) ? wanted : 'overview';
-};
 
-export function HosterAdminApp() {
+// Groups this surface did not write, handed in rather than imported.
+//
+// The pool host's Fleet and Machines screens are JotNotes Navigator only and
+// live in `fleet-admin.jsx`, which is absent from the JotPanel bundle. This
+// file must therefore never name that file: a static import of a module that
+// is not there does not degrade, it takes the whole screen down. So the group
+// arrives as a value from whoever mounted the surface, the same way the
+// desktop hands `desktopSections` to the panel's SettingsApp rather than the
+// panel importing the desktop. `hoster.jsx` is what probes for the module.
+//
+// The gate is unchanged. Having the module says the product has the screens;
+// `me.pool_host` says this install is a pool host, answered by `/api/me` on
+// every load. Both are required, because the routes those screens read are
+// mounted nowhere else and a nav entry on a customer's guest would be a link
+// to a 404.
+export const sectionsFor = (me, extraSections = []) => (
+  me && me.pool_host && extraSections.length
+    ? [SECTIONS[0], ...extraSections, ...SECTIONS.slice(1)]
+    : SECTIONS
+);
+
+// Which section the address names. Validated against whatever is actually
+// mounted rather than a fixed list, because the list grows when the optional
+// module resolves: a deep link to /hoster/fleet has to still land on Fleet
+// once it has, and has to fall back to the Overview where that module is not
+// part of the product at all.
+const pathId = () => window.location.pathname.replace(ROOT, '').replace(/^\/+|\/+$/g, '');
+
+// One array rather than a fresh default on every render, so the memos below
+// are not invalidated by the absence of a prop.
+const NO_EXTRA_SECTIONS = [];
+
+export function HosterAdminApp({ extraSections = NO_EXTRA_SECTIONS }) {
   // Three states, and they are not interchangeable. `null` means the question
   // has not been answered yet and nothing may be drawn; `false` means the
   // server said this caller is not the operator; an object means it is.
   const [who, setWho] = useState(null);
   const [refused, setRefused] = useState('');
-  const [section, setSection] = useState(sectionFromPath);
+  const [section, setSection] = useState(pathId);
+
+  // Everything actually mounted, in nav order. It grows when the optional
+  // module resolves, so it is recomputed rather than captured once.
+  const groups = useMemo(() => sectionsFor(who, extraSections), [who, extraSections]);
+  const flat = useMemo(() => groups.flatMap(g => g.items), [groups]);
 
   const ask = useCallback(async () => {
     try {
@@ -624,7 +656,7 @@ export function HosterAdminApp() {
 
   // The back button and a typed address mean the same thing here as anywhere.
   useEffect(() => {
-    const onPop = () => setSection(sectionFromPath());
+    const onPop = () => setSection(pathId());
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -664,8 +696,11 @@ export function HosterAdminApp() {
           </div>}
     </div></div>;
 
-  const Current = (FLAT.find(([id]) => id === section) || FLAT[0])[3];
-  const title = (FLAT.find(([id]) => id === section) || FLAT[0])[2];
+  // An address naming a section this product does not have falls back to the
+  // Overview rather than rendering nothing, which is what the old fixed list
+  // did for an unknown path and is what /hoster/fleet must do on a panel where
+  // the Fleet screens are not part of the product.
+  const [here, , title, Current] = flat.find(([id]) => id === section) || flat[0];
 
   return <div className="ha"><style>{CSS}</style>
     <aside className="ha-side">
@@ -674,11 +709,11 @@ export function HosterAdminApp() {
         <div style={{ minWidth: 0 }}><strong>JotPanel</strong><span>Host admin</span></div>
       </div>
       <nav>
-        {SECTIONS.map(group => <div key={group.group}>
+        {groups.map(group => <div key={group.group}>
           <div className="ha-group">{group.group}</div>
           {group.items.map(([id, icon, label]) => (
-            <button key={id} className={`ha-link ${section === id ? 'on' : ''}`}
-                    aria-current={section === id ? 'page' : undefined} onClick={() => go(id)}>
+            <button key={id} className={`ha-link ${here === id ? 'on' : ''}`}
+                    aria-current={here === id ? 'page' : undefined} onClick={() => go(id)}>
               <PanelIcon name={icon} size={14} />{label}
             </button>
           ))}

@@ -1,6 +1,6 @@
 // The control panel, which is the whole of the free product.
 //
-// Everything the standalone panel needs lives here and nothing the Arca
+// Everything the standalone panel needs lives here and nothing the Navigator
 // desktop adds does. That is the point of the file rather than a tidy-up:
 // `panel.jsx` used to import ControlPanelApp out of `arca-webos.jsx`, so
 // compiling the free panel from source required the twelve-and-a-half-thousand
@@ -17,7 +17,7 @@
 import { APPLICATION_UI, auditRowsToCsv, filterAuditRows, filterControlActions, scheduledJobFormProblem, scheduledJobRunTone } from "./panel-helpers.js";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t, setLanguage, currentLanguage, LANGUAGES, languageHeaders } from "./i18n.js";
-import { readPanelStorage } from "./panel-storage.js";
+import { readPanelStorage, writePanelStorage } from "./panel-storage.js";
 import { startRecording, voiceInputSupported, serverCanListen } from "./voice-input.js";
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -5114,6 +5114,160 @@ function ConnectAISection({ api }) {
   </>;
 }
 
+// ── Your own password ─────────────────────────────────────────────
+//
+// The form for `POST /api/me/password`. Until this existed the route shipped
+// with no affordance at all: a signed-in person could change their password
+// only by reaching for curl, which for a product sold to people who run one
+// server is the same as not being able to change it.
+//
+// It sits here, above the second factor and beside the passkeys and the
+// recovery codes, because this is the screen the panel's own navigation calls
+// "Sign-in security" and the password is the credential the rest of this
+// screen is built on top of. A person looking for it looks here first.
+//
+// Three deliberate choices, because a reader will look for them:
+//
+//   - The current password is in the same request, which is the route's
+//     contract and not a nicety: a session somebody walked up to must not be
+//     enough on its own to replace the credential it was issued against.
+//   - The second-factor box appears only when this account has one, and
+//     whether it has one is the server's answer from `GET /api/2fa` — the same
+//     reading `TwoFactorSection` below already makes, rather than a new route
+//     added for this form. A recovery code is accepted there as well, because
+//     the route accepts one, and a person who has lost the phone has nothing
+//     else left.
+//   - The fresh token the route hands back replaces the stored session. Not
+//     cosmetic: without it the person carries on holding a session minted
+//     before the change, which is the one thing a password change is supposed
+//     to end for them.
+//
+// What this must not do, and does not: no password reaches a URL, a log, or
+// any client storage. The only things written are the token and the account
+// row, by `writePanelStorage`, exactly as `sign-in.jsx` writes them. Every box
+// is cleared on success, so nothing is left in component state either.
+
+// The product's floor, the twelve `control/changePassword.js` applies as
+// `MIN_LENGTH` and `account.create` applies to a new account. Exported so a
+// test can hold it against the backend's own constant rather than trusting
+// that two files were edited together. The form does not enforce it: a short
+// password is sent and the server's own sentence is what the person reads, so
+// there is one wording and it is the one that is true.
+export const MIN_NEW_PASSWORD_LENGTH = 12;
+
+export function PasswordSection({ api }) {
+  // The second-factor posture, read for one bit: whether a code is required.
+  const [posture, setPosture] = useState(null);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+
+  const load = useCallback(() => api("/api/2fa").then(setPosture).catch(e => setError(e.message)), [api]);
+  useEffect(() => { load(); }, [load]);
+
+  const needsCode = !!posture?.enabled;
+  const mismatch = !!again && next !== again;
+  const filled = !!current && !!next && !!again && (!needsCode || !!code.trim());
+
+  const change = async () => {
+    // Answered here rather than by the server, because the server cannot see
+    // the second box and has no opinion about it. Sending the request anyway
+    // would spend the two-factor limiter's budget to be told nothing, and the
+    // person would be shown a sentence about their current password when what
+    // they actually did was mistype the confirmation.
+    if (next !== again) { setNote(""); setError(t("The two new passwords do not match. Check the second box.")); return; }
+    setBusy(true); setError(""); setNote("");
+    try {
+      const out = await api("/api/me/password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: current,
+          new_password: next,
+          // Sent only when this account has a factor, so an account without
+          // one does not send an empty field the route would have to ignore.
+          ...(needsCode ? { code: code.trim() } : {}),
+        }),
+      });
+      // The session in hand was minted before the change. Replaced the way the
+      // sign-in screen stores one, under the same keys, or the next request
+      // goes out carrying the older token.
+      if (out.token) writePanelStorage("jwt", out.token);
+      if (out.user) writePanelStorage("user", JSON.stringify(out.user));
+      setCurrent(""); setNext(""); setAgain(""); setCode("");
+      // The server's own sentence, which says that sessions elsewhere stay
+      // signed in until they expire. Not replaced with a cheerful claim that
+      // everything else was signed out, because it was not.
+      setNote(out.note || t("Your password is changed."));
+      load();
+    } catch (e) {
+      // Whatever the route said: "That password is not right", "Choose a
+      // password of at least 12 characters", or the second factor's own
+      // reason. Its wording, in the person's language, not a guess from here.
+      setError(e.message);
+    } finally { setBusy(false); }
+  };
+
+  return <>
+    <div className="ap-section-head">
+      <div>
+        <h2>{t("Your password")}</h2>
+        <p>{t("Replace the password you sign in with. You will need the one you have now, in the same step.")}</p>
+      </div>
+      {needsCode && <PanelBadge tone="ok">{t("a code is needed too")}</PanelBadge>}
+    </div>
+
+    <div className="ap-card">
+      <div className="ap-card-head"><strong>{t("Change your password")}</strong><span>{t("at least {count} characters", { count: MIN_NEW_PASSWORD_LENGTH })}</span></div>
+      <div className="ap-card-body">
+        <div className="ap-field">
+          <label>{t("The password you have now")}</label>
+          <input className="ap-input" type="password" autoComplete="current-password" aria-label={t("The password you have now")}
+            value={current} onChange={e => setCurrent(e.target.value)}/>
+        </div>
+        <div className="ap-field">
+          <label>{t("Your new password")}</label>
+          <input className="ap-input" type="password" autoComplete="new-password" aria-label={t("Your new password")}
+            value={next} onChange={e => setNext(e.target.value)}/>
+        </div>
+        <div className="ap-field">
+          <label>{t("Your new password again")}</label>
+          <input className="ap-input" type="password" autoComplete="new-password" aria-label={t("Your new password again")}
+            value={again} onChange={e => setAgain(e.target.value)}/>
+        </div>
+        {/* Shown while typing so the mismatch is caught before the button is
+            pressed, and said again as an error if it is pressed anyway. */}
+        {mismatch && <div className="secondary" style={{marginTop:-4}}>{t("The two new passwords do not match.")}</div>}
+
+        {/* Only when this account has a factor. The route asks for it in that
+            case and refuses without it, and asking an account that has none
+            for a code it cannot produce would be a dead end. */}
+        {needsCode && <div className="ap-field">
+          <label>{t("A code from your authenticator app, or a recovery code")}</label>
+          <input className="ap-input" autoComplete="one-time-code" inputMode="text" placeholder={t("Code or recovery code")}
+            aria-label={t("A code from your authenticator app, or a recovery code")}
+            value={code} onChange={e => setCode(e.target.value)}/>
+        </div>}
+
+        <button className="ap-btn primary" style={{marginTop:12}} disabled={busy || !filled || mismatch} onClick={change}>
+          <PanelIcon name="shield" size={14}/>{busy ? t("Changing your password…") : t("Change my password")}
+        </button>
+        <p className="secondary" style={{marginTop:10}}>
+          {needsCode
+            ? t("Your second factor stays on afterwards, and your passkeys are untouched.")
+            : t("Your passkeys are untouched by this.")}
+        </p>
+      </div>
+    </div>
+
+    {error && <div className="ap-callout bad" role="alert"><PanelIcon name="alert" size={18}/><div>{error}</div></div>}
+    {note && <div className="ap-callout good" role="status"><PanelIcon name="check" size={18}/><div>{note}</div></div>}
+  </>;
+}
+
 function TwoFactorSection({ api }) {
   const [state, setState] = useState(null);
   const [setup, setSetup] = useState(null);      // secret + QR, held only while enrolling
@@ -5775,7 +5929,7 @@ export function ControlPanelApp({ user, onOpenApp, onSignOut, standalone = false
   const activeActions = actions.filter(a => ["pending","approved"].includes(a.status));
   const certAttention = sites.filter(s => !["healthy","not_configured"].includes(s.certificate?.status)).length;
   const panelAvailable = license?.panel_available !== false;
-  // The same tool opens a desktop window inside Arca and a full-width section
+  // The same tool opens a desktop window inside Navigator and a full-width section
   // in the standalone panel, which is the whole difference between the two
   // shells. Nothing else in this component knows which one it is running in.
   const openTool = tool => {
@@ -6032,14 +6186,14 @@ export function ControlPanelApp({ user, onOpenApp, onSignOut, standalone = false
         {section === "migration" && <ServerMigration ops={ops}/>}
         {section === "console" && <ServerConsole ops={ops}/>}
 
-        {/* Standalone only. Inside Arca these three are desktop windows, and
+        {/* Standalone only. Inside Navigator these three are desktop windows, and
             openTool sends them there instead of here. A control panel that
             could not manage files, read mail or change its own settings would
             not be a control panel, so they are sections rather than absent. */}
         {section === "files" && <div className="ap-embed"><FilesApp/></div>}
         {section === "mail" && <div className="ap-embed"><MailApp/></div>}
         {section === "reseller" && <ResellerSection api={api}/>}
-        {section === "twofactor" && <><PasskeySection api={api}/><RecoveryCodesSection api={api}/><TwoFactorSection api={api}/></>}
+        {section === "twofactor" && <><PasswordSection api={api}/><PasskeySection api={api}/><RecoveryCodesSection api={api}/><TwoFactorSection api={api}/></>}
         {section === "connectai" && <ConnectAISection api={api}/>}
         {section === "echo" && <AskEchoSection goTo={setSection} onProposal={()=>refresh(true)} ops={ops}/>}
         {section === "settings" && <><PanelDomain ops={ops}/><LanguageChoice onChange={() => setLanguageTick(n => n + 1)} /><div className="ap-embed"><SettingsApp standalone installed={new Set()} onInstall={()=>{}} onUninstall={()=>{}}/></div></>}
@@ -6913,7 +7067,7 @@ export async function callAI(systemPrompt, messages, opts = {}) {
   if (streaming && res.ok && (res.headers.get("content-type") || "").includes("text/event-stream")) {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
-    let buf = "", full = "";
+    let buf = "", full = "", handoffSeen = null;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -6925,9 +7079,15 @@ export async function callAI(systemPrompt, messages, opts = {}) {
         let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
         if (ev.error) throw new Error(ev.error);
         if (ev.delta) { full += ev.delta; opts.onDelta(full, ev.delta); }
+        // Who this piece of work went to and why, said as it happens and before
+        // any of the answer. Announced as an event as well as a callback,
+        // following arca_brain above, so a surface can show it without the
+        // caller having to thread a handler through to reach it. `handoff` also
+        // rides the done event, so this guards against saying it twice.
+        if (ev.handoff) handoffSeen = announceHandoff(ev.handoff, handoffSeen, opts);
         // A staged provisioning proposal riding the stream (demo bridge).
         if (ev.action && typeof opts.onAction === "function") opts.onAction(ev.action);
-        if (ev.done) finish(ev);
+        if (ev.done) { if (ev.handoff) handoffSeen = announceHandoff(ev.handoff, handoffSeen, opts); finish(ev); }
       }
     }
     return full;
@@ -6936,8 +7096,20 @@ export async function callAI(systemPrompt, messages, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) throw new Error(data.error || t("AI request failed ({status})", { status: res.status }));
   if (data.action && typeof opts.onAction === "function") opts.onAction(data.action);
+  if (data.handoff) announceHandoff(data.handoff, null, opts);
   finish(data);
   return data.reply || "";
+}
+
+// Say a handoff once. The sentence arrives on its own event the moment the work
+// is handed over and again on done, because a client that was not listening for
+// the first still deserves the second; whichever arrives first is the one said.
+function announceHandoff(handoff, already, opts = {}) {
+  const key = `${handoff.provider}/${handoff.model}/${handoff.code}`;
+  if (already === key) return already;
+  if (typeof opts.onHandoff === "function") opts.onHandoff(handoff);
+  try { window.dispatchEvent(new CustomEvent("arca_handoff", { detail: handoff })); } catch {}
+  return key;
 }
 
 async function residentApiRequest(path, opts = {}) {

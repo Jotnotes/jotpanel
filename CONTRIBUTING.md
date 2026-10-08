@@ -50,8 +50,14 @@ cd app/backend && npm run test:unit   # the offline suite, and it runs the two f
 cd app/frontend && npm test           # the frontend suites on their own
 ```
 
-`npm test` in `app/backend` is a different thing: it drives every endpoint against a server that is
-already running, so start one first or it fails for the wrong reason.
+`npm test` in `app/backend` is the short suite that also ships to a customer: six checks that need
+no server, no network and no credentials, so somebody who has just installed the panel can run it on
+their own box and have it pass. It is a subset of `test:unit`, not a different kind of test.
+
+`app/backend/test.js` drives every endpoint against a server that is already running. It is not
+wired to any script and is not in a customer bundle, because it was written for an earlier product:
+it still expects public sign-ups, which a real install closes. Run it by hand with
+`node test.js http://localhost:3000` if you want it, and read its failures with that in mind.
 
 Against a machine, and only ever on the machine:
 

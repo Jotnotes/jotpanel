@@ -1617,5 +1617,21 @@
   "Nothing has changed yet. It waits for your approval.": "Aún no se ha producido ningún cambio. Espera tu aprobación.",
   "Trying {id} again": "Intentando de nuevo {id}",
   "not used yet": "not used yet",
-  "Create a site and its certificate check will appear here.": "Crea un sitio y su certificado aparecerá aquí."
+  "Create a site and its certificate check will appear here.": "Crea un sitio y su certificado aparecerá aquí.",
+  "A code from your authenticator app, or a recovery code": "Un código de tu aplicación de autenticación, o un código de recuperación",
+  "Change my password": "Cambiar mi contraseña",
+  "Change your password": "Cambiar tu contraseña",
+  "Changing your password…": "Cambiando tu contraseña…",
+  "Replace the password you sign in with. You will need the one you have now, in the same step.": "Sustituye la contraseña con la que inicias sesión. Necesitarás la que tienes ahora, en el mismo paso.",
+  "The password you have now": "La contraseña que tienes ahora",
+  "The two new passwords do not match.": "Las dos contraseñas nuevas no coinciden.",
+  "The two new passwords do not match. Check the second box.": "Las dos contraseñas nuevas no coinciden. Revisa la segunda casilla.",
+  "Your new password": "Tu nueva contraseña",
+  "Your new password again": "Tu nueva contraseña otra vez",
+  "Your passkeys are untouched by this.": "Esto no afecta a tus claves de acceso.",
+  "Your password is changed.": "Tu contraseña ha cambiado.",
+  "Your second factor stays on afterwards, and your passkeys are untouched.": "Tu segundo factor sigue activo después, y tus claves de acceso no se modifican.",
+  "a code is needed too": "también se necesita un código",
+  "at least {count} characters": "al menos {count} caracteres",
+  "Your password is changed. Sessions already signed in elsewhere stay signed in until they expire.": "Tu contraseña ha cambiado. Las sesiones ya iniciadas en otros lugares siguen conectadas hasta que expiren."
 }

@@ -98,7 +98,7 @@ provisioning system never has to invent a password.
 | `--bundle-sha256 HASH` | Expected checksum. Otherwise `URL.sha256` is used. |
 | `--install-dir PATH` | Install location. Default `/opt/jotpanel`. |
 | `--cert-staging` | Issue from the Let's Encrypt staging authority. Untrusted by browsers, and the right choice when you are installing onto the same name repeatedly, because the real authority rate-limits that. |
-| `--with-resident` | Install a local AI model for Echo (needs about 8 GB of memory), bound to loopback only. |
+| `--with-resident` | Install a local AI model for Echo, bound to loopback only. The model is the biggest thing on the box: a 7B at 4-bit is about 5 GB resident, so size the machine for that plus whatever else it runs. No whole-box figure is published because none has been measured on a server yet. |
 | `--no-swap` | Do not create a swap file. Read section 1 before using it. |
 | `--non-interactive` | Refuse missing values instead of prompting, and generate the password. |
 | `--license-key VALUE` | Licence key, written to the install config. |

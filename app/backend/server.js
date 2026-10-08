@@ -33,6 +33,7 @@ const opsCatalogue = require('./control/ops/catalogue');
 const { buildPanelEchoPrompt } = require('./control/echoPanelPrompt');
 const { createActionStore } = require('./control/actionStore');
 const { createProjectLedger } = require('./control/projectLedger');
+const { createProjectManager } = require('./control/projectManager');
 const { createResidentGateway, createUnderstanding, candidatesFor, interpret: interpretRequest, ROLE_ROUTES, TASK_ROLE } = require('./control/residentGateway');
 const { prepareOutbound, assertClean, hostedBody, scrubSecrets } = require('./control/egressGuard');
 const supervisor = require('./control/supervisor');
@@ -51,6 +52,27 @@ const { createStatisticsService } = require('./control/statistics');
 const { createWebmailClient } = require('./control/webmailClient');
 const { translate: translateMessage } = require('./control/messages');
 const { createServerOpsService } = require('./control/serverOps');
+// Fleet, machines and activation are JotNotes Navigator's, and a JotPanel
+// bundle does not carry them: app/deploy/BUNDLE_EXCLUDE.panel.txt names the
+// files and says why. Loaded through `optionalModule` so an install without
+// them boots. Only a module this file asks for directly may be missing - a
+// MODULE_NOT_FOUND from deeper in the tree is a broken install and still
+// throws, rather than being swallowed into a half-built server.
+function optionalModule(id) {
+  try { return require(id); }
+  catch (error) {
+    if (error.code === 'MODULE_NOT_FOUND' && error.requireStack && error.requireStack[0] === __filename) return null;
+    throw error;
+  }
+}
+const { createFleetService } = optionalModule('./control/fleet') || {};
+const { createFleetEnrollment } = optionalModule('./control/fleetEnrollment') || {};
+const { createDeviceTrust } = require('./control/deviceTrust');
+const { summarize: summarizeForFleet, FLEET_REPORT_CAPABILITY } = optionalModule('./control/fleetSummary') || {};
+const { secretsRepairedConcerns, installRootFrom } = require('./control/secretsRepaired');
+const { createActivationService } = optionalModule('./control/activation') || {};
+const { createMachineService } = optionalModule('./machines') || {};
+const { createLibvirtMachineAdapter } = optionalModule('./machines/libvirtAdapter') || {};
 const { createOwnershipService, HIERARCHY: ROLE_RANK, TOP_TWO: OWNERSHIP_TOP_TWO } = require('./control/ownership');
 const { createApiKeyService, looksLikeApiKey } = require('./control/apiKeys');
 const { redact: redactSecrets, holdsSecret, isSecretName } = require('./control/secrets');
@@ -130,6 +152,32 @@ const PANEL_DB_PATH = panelDatabasePath(DATA_DIR);
 const db = new Database(PANEL_DB_PATH);
 db.exec(`
   PRAGMA journal_mode=WAL;
+  -- A COMMITTED ROW HAS TO SURVIVE THE POWER GOING OFF, and under WAL it did not.
+  --
+  -- MEASURED ON REAL HARDWARE 2026-10-05, after this cost two billable hours of
+  -- wrong diagnosis. A guest enrolled, minted its fleet.report key, was polled
+  -- successfully, and was then hard-powered-off. It came back with its database
+  -- EMPTY: no api_keys, no users, no audit_log, a 4096-byte main file and
+  -- integrity_check "ok". The pool host presented the same key and the guest
+  -- answered 401 - byte-identical to a key it had never issued, because by then
+  -- it never had.
+  --
+  -- WHY, and why the earlier probe said otherwise. better-sqlite3 is built with
+  -- SQLITE_DEFAULT_SYNCHRONOUS=2 and SQLITE_DEFAULT_WAL_SYNCHRONOUS=1, so a WAL
+  -- database runs at NORMAL however the other default reads. At NORMAL the WAL
+  -- is NOT fsynced on commit: a power loss loses recent transactions while
+  -- leaving the file consistent, which is precisely the state above. And
+  -- "PRAGMA synchronous" REPORTS 2 EVEN IN WAL MODE, so the 2026-10-04 probe
+  -- read FULL, concluded durability was fine, and sent the next session looking
+  -- for a lost key instead of a lost commit. The pragma cannot answer the
+  -- question it was asked; the compile options can.
+  --
+  -- So it is stated here rather than inherited. The cost is an fsync per commit,
+  -- which is the correct trade for a product sold as one customer's server on
+  -- hardware that can lose power: this database is their accounts, their keys
+  -- and their audit trail, and a panel that forgets the last few minutes of
+  -- those is not a panel anybody can run a business on.
+  PRAGMA synchronous=FULL;
   PRAGMA foreign_keys=ON;
   PRAGMA secure_delete=ON;
 
@@ -305,7 +353,18 @@ app.use(express.json({ limit: '6mb' })); // room for photo attachments to Echo (
 // here rather than looked up in each handler, because a message that forgets to
 // ask is a message in English, and that failure is invisible until somebody who
 // does not read English hits it.
-app.use((req, res, next) => { req.t = (english, values) => translateMessage(req, english, values, DOMAIN_LANGUAGE); next(); });
+//
+// Named rather than inline, because `app` is not the only express app this
+// server stands up. The loopback bootstrap surface is its own app with its own
+// listener, and it mounts the `admin` router whose handlers call `req.t` like
+// every other handler here. An app that never attached it answers
+// `TypeError: req.t is not a function` instead of the refusal or the 404 the
+// handler wrote, so creating the first owner twice, a missing field, an unknown
+// account id, a wrong admin key and an unknown path on that surface all
+// reported themselves as the panel falling over. Defined once and used by both
+// apps, so a second surface cannot quietly be built without it.
+const attachLanguage = (req, res, next) => { req.t = (english, values) => translateMessage(req, english, values, DOMAIN_LANGUAGE); next(); };
+app.use(attachLanguage);
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
 // A body the panel could not parse is the caller's mistake, not the server
@@ -445,6 +504,13 @@ const KEY_ROUTES = [
   /^\/api\/organizations\/[^/]+\/(entitlements|usage)\b/,
   /^\/api\/provisioning\b/,
   /^\/api\/me$/,
+  // The fleet collector. A pool host polls each guest with a key that guest
+  // issued, scoped to exactly `fleet.report`. Listed here deliberately rather
+  // than as a side effect: this allowlist is the place a route is reviewed for
+  // machine callers, and the route checks the scope itself as well. Both are
+  // kept because they fail differently — this survives somebody adding a route,
+  // and the scope check survives somebody adding a pattern.
+  /^\/admin\/fleet\/summary$/,
 ];
 
 function auth(req, res, next) {
@@ -669,6 +735,128 @@ function checkQuota(req, res, next) {
 const SHELL = (process.env.JOTPANEL_SHELL ?? process.env.ARCA_SHELL) === 'panel' ? 'panel' : 'desktop';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const PRODUCT_NAME = SHELL === 'desktop' ? 'JotNotes Navigator' : 'JotPanel';
+
+// ── The first thing a customer sees on a machine nobody owns yet ───
+//
+// A provisioned guest has one account on it, the hoster's operator, whose
+// password was generated inside the machine and never written down. So the
+// ordinary sign-in screen is a door nobody has the key to, and showing it is
+// the wrong answer to "I have just been given a server".
+//
+// This serves the activation page INSTEAD of the shell, and only while
+// `activation.state()` says the machine is waiting: the moment a customer
+// exists, `activation_required` is false and the root goes back to serving the
+// shell, so an initialized guest can never present the setup screen as though it
+// were fresh. The state is read per request from the identity database rather
+// than cached, because a stale yes here would be a second activation screen on
+// somebody's working machine.
+//
+// Registered before the shell routes and the static handler, because Express
+// matches in order and `express.static` would otherwise answer `/` first. It
+// reads `activation`, which is constructed further down this file: the handler
+// body runs at request time, long after the module has finished loading.
+//
+// Written as a page rather than added to the sign-in shell deliberately. The
+// panel is two frontend files and the split is load-bearing, and the credential
+// handling here is small enough to be read in one sitting. If it grows, it
+// belongs in the shell.
+function activationPage() {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Activate ${PRODUCT_NAME}</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f6f6f7; --card:#fff; --fg:#111; --mut:#666; --line:#e2e2e4; --accent:#111; --bad:#b00020; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111214; --card:#1b1c1f; --fg:#f2f2f3; --mut:#9a9aa0; --line:#2c2d31; --accent:#f2f2f3; --bad:#ff6b6b; } }
+  * { box-sizing:border-box }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; padding:24px }
+  .card { width:100%; max-width:440px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:28px }
+  h1 { font-size:20px; margin:0 0 6px }
+  p.lead { color:var(--mut); margin:0 0 22px }
+  label { display:block; font-weight:600; margin:16px 0 6px }
+  input { width:100%; padding:11px 12px; font:inherit; color:var(--fg); background:var(--bg);
+          border:1px solid var(--line); border-radius:8px }
+  input:focus { outline:2px solid var(--accent); outline-offset:1px }
+  .hint { color:var(--mut); font-size:13px; margin-top:6px }
+  button { width:100%; margin-top:22px; padding:12px; font:inherit; font-weight:700; cursor:pointer;
+           background:var(--accent); color:var(--card); border:0; border-radius:8px }
+  button[disabled] { opacity:.6; cursor:default }
+  .msg { margin-top:16px; padding:11px 12px; border-radius:8px; border:1px solid var(--bad); color:var(--bad); font-size:14px }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+</style>
+</head><body>
+<form class="card" id="f" autocomplete="on">
+  <h1>Activate this ${PRODUCT_NAME}</h1>
+  <p class="lead">This machine is yours but nobody has signed in to it yet. Your provider gave you a
+  one-time activation code. Enter it, then choose the password you will sign in with from now on.</p>
+
+  <label for="code">Activation code</label>
+  <input id="code" name="code" required autocomplete="one-time-code" spellcheck="false"
+         placeholder="XXXXX-XXXXX-XXXXX-XXXXX" autocapitalize="characters">
+  <div class="hint">From your provider. It works once.</div>
+
+  <label for="name">Your name</label>
+  <input id="name" name="name" autocomplete="name">
+
+  <label for="email">Email address</label>
+  <input id="email" name="email" type="email" required autocomplete="username">
+  <div class="hint">This becomes your sign-in name.</div>
+
+  <label for="password">Choose a password</label>
+  <input id="password" name="password" type="password" required minlength="12" autocomplete="new-password">
+  <div class="hint">At least 12 characters. Your provider never sees it.</div>
+
+  <label for="confirm">Confirm password</label>
+  <input id="confirm" name="confirm" type="password" required minlength="12" autocomplete="new-password">
+
+  <button type="submit" id="go">Activate</button>
+  <div class="msg" id="msg" hidden></div>
+</form>
+<script>
+  var f = document.getElementById('f'), go = document.getElementById('go'), msg = document.getElementById('msg');
+  function fail(text) { msg.textContent = text; msg.hidden = false; go.disabled = false; go.textContent = 'Activate'; }
+  f.addEventListener('submit', function (event) {
+    event.preventDefault();
+    msg.hidden = true;
+    if (f.password.value !== f.confirm.value) return fail('The two passwords do not match.');
+    go.disabled = true; go.textContent = 'Activating\\u2026';
+    // POST, so the code is never in a URL, a referrer or an access log.
+    fetch('/api/activation', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: f.code.value, email: f.email.value, name: f.name.value, password: f.password.value }),
+    }).then(function (r) { return r.json().then(function (body) { return { status: r.status, body: body }; }); })
+      .then(function (answer) {
+        if (answer.status !== 200 || !answer.body.token) return fail(answer.body.error || ('Activation failed (' + answer.status + ').'));
+        // The same session key the panel writes, so the customer lands signed in.
+        try {
+          localStorage.setItem('jotpanel_jwt', answer.body.token);
+          localStorage.setItem('jotpanel_user', JSON.stringify(answer.body.user));
+        } catch (e) { /* a browser with storage off still gets a working account */ }
+        location.replace('/');
+      })
+      .catch(function (error) { fail('Could not reach this machine: ' + error.message); });
+  });
+</script>
+</body></html>`;
+}
+
+app.get(['/', '/activate'], (req, res, next) => {
+  let waiting = false;
+  try { waiting = activation.state().activation_required === true; }
+  catch { waiting = false; }   // never let this be the reason a panel cannot serve its own root
+  if (!waiting) {
+    // `/activate` on a machine that is already somebody's goes to the shell,
+    // not to a setup screen: there is nothing here to set up.
+    return next();
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.type('html').send(activationPage());
+});
+
 if (SHELL === 'panel') {
   app.get('/', (req, res, next) => {
     const entry = path.join(PUBLIC_DIR, 'panel.html');
@@ -1155,13 +1343,45 @@ app.post('/api/2fa/recovery-codes', auth, twoFactorLimiter, (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// Changing your own password, and only your own. There is no account id in this
+// path on purpose: the route it replaces took one and set whichever account the
+// caller named, which is why it was removed (see the list further down this
+// file). The account here is the one `auth` proved, the current password is
+// proved again in the same request with the sign-in path's own compare, and the
+// write is bcrypt at 12 like every other password write on this box. The
+// account's second factor and passkeys are left exactly as they were.
+//
+// Behind `twoFactorLimiter` rather than `authLimiter` for the reason written
+// where that limiter is declared: this sits behind a valid session already, so
+// what is being guarded is a secret being guessed and not a door being tried,
+// and a person rotating their password should not spend the sign-in budget.
+// The second-factor functions are passed as thunks, not as `twoFactor` itself,
+// because the service is constructed further down this file and this line runs
+// at load. Handing it over directly is a reference before initialization and
+// the process does not start at all. Same shape, and the same reason, as the
+// magic-link mount below.
+app.post('/api/me/password', auth, twoFactorLimiter,
+  require('./control/changePassword').createChangePassword({
+    db, bcrypt, jwt, JWT_SECRET, audit,
+    twoFactor: {
+      isEnabled: id => twoFactor.isEnabled(id),
+      checkCode: (id, code) => twoFactor.checkCode(id, code),
+      useRecoveryCode: (id, code) => twoFactor.useRecoveryCode(id, code),
+    },
+  }));
+
 app.get('/api/me', auth, (req, res) => {
   const user = db.prepare('SELECT id,name,email,plan,created_at,storage_gb FROM users WHERE id=?').get(req.user.id);
   // Answered here so a shell can decide what to draw, rather than each surface
   // discovering it by being refused. It is derived from the ownership ledger on
   // every request and is not stored on the account, so it cannot go stale and
   // nothing in a request can claim it.
-  res.json({ ...user, is_operator: isOperatorIdentity(req.user.id) });
+  // Whether this install is a pool host, answered here for the same reason
+  // `is_operator` is: a shell decides what to draw from the server's answer
+  // rather than discovering it by being refused, or worse by drawing a screen
+  // whose routes are not mounted. Read from this install's configuration on
+  // every request; nothing in a request can claim it.
+  res.json({ ...user, is_operator: isOperatorIdentity(req.user.id), pool_host: IS_POOL_HOST });
 });
 
 // ── SETTINGS ──────────────────────────────────────────────────────
@@ -1278,6 +1498,49 @@ app.get('/api/auth/options', (req, res) => {
     registration: registrationMode(),
     demo: (process.env.JOTPANEL_DEMO_TENANTS ?? process.env.ARCA_DEMO_TENANTS) === 'on',
   });
+});
+
+// ── Activation: a provisioned guest becoming somebody's machine ───
+//
+// The one place in this file where an unauthenticated caller may create an
+// account, and it is narrower than it sounds: it works only on a box that has an
+// unspent activation code and no customer on it yet, and the code is checked
+// against a stored hash. control/activation.js holds the rules and says why each
+// one is there.
+//
+// THE CODE IS POSTED, NOT PUT IN A URL, which is the one way this deliberately
+// differs from the magic link beside it. `/?magic=<token>` lands in browser
+// history, in a referrer and in every access log between here and the customer;
+// an activation code is the credential that creates an account, so it travels in
+// a body instead.
+//
+// Rate limited on the sign-in budget, because an activation code is a credential
+// and guessing at one is the same kind of attempt as guessing at a password.
+app.get('/api/activation/state', (req, res) => {
+  if (!activation) return res.status(404).json({ error: req.t('This product does not activate') });
+  // A boolean and nothing else. A caller learns whether this box is waiting to
+  // be activated, which the screen would tell them anyway, and never how many
+  // attempts have been made, who it was provisioned for, or anything about the
+  // code itself.
+  const state = activation.state();
+  res.json({ activation_required: state.activation_required, product: PRODUCT_NAME });
+});
+
+app.post('/api/activation', authLimiter, (req, res) => {
+  if (!activation) return res.status(404).json({ error: req.t('This product does not activate') });
+  const { code, email, name, password } = req.body || {};
+  const out = activation.activate({ code, email, name, password });
+  if (!out.ok) {
+    // `already` is the one refusal that is not a failure: the box is activated
+    // and the caller should be signing in. 409 rather than 401 so a surface can
+    // tell the two apart without reading the sentence.
+    return res.status(out.already ? 409 : 400).json({ error: out.reason });
+  }
+  // The same session the password path issues, from the same secret, so nothing
+  // about a session created here is special or longer-lived.
+  const user = db.prepare('SELECT id,name,email,plan FROM users WHERE id=?').get(out.identityId);
+  const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, plan: user.plan } });
 });
 
 // GET /api/auth/magic?token=xxx  — verify token; a session, or the two-factor
@@ -1517,7 +1780,10 @@ app.post('/api/files', auth, checkQuota, uploadLimiter, upload.array('files'), (
   res.json(inserted);
 });
 
-app.get('/api/files/:id/download', auth, (req, res) => {
+// Download is the direction that empties the vault, so it confirms — on a
+// visiting machine AND on an enrolled one, which is Steve's call of
+// 2026-10-04. See docs/NAVIGATOR_DEVICE_TRUST_DESIGN.md.
+app.get('/api/files/:id/download', auth, requireTrust('files.download'), (req, res) => {
   const row = db.prepare('SELECT * FROM files WHERE id=? AND user_id=?').get(req.params.id, req.user.id);
   if (!row) return res.status(404).json({ error: req.t('Not found') });
   res.download(row.disk_path, row.name);
@@ -2002,6 +2268,10 @@ const projectLedger = createProjectLedger({
 });
 const LEDGER_RUN_ID = crypto.randomBytes(8).toString('hex');
 const routingFit = createRoutingFit({ db });
+// The Resident as project manager: it explains the handoffs the ledger already
+// records, totals what they cost per AI and per project, and refuses work that
+// would take a project past a limit the person set.
+const projectManager = createProjectManager({ db, ledger: projectLedger });
 // The Resident's own reading of each turn: plain rules, then the local model
 // inside the latency budget (decision 6: about 2s on a GPU, 8s on CPU).
 const residentGateway = createResidentGateway({
@@ -2024,6 +2294,28 @@ function residentDispatch(turn, route, options) {
   try { return residentGateway.dispatch(turn, route, options); }
   catch (error) { console.error('[resident] dispatch record', error.message); return null; }
 }
+// What answered last in each conversation. In memory on purpose: this exists so
+// "the work changed hands" can be worth saying, and losing it on a restart costs
+// one extra explanation rather than anything a person would miss.
+const lastHandOf = new Map();
+function narrateHandoff(turn, route, { explicit = false, budgetState = null } = {}) {
+  if (!turn || !route) return null;
+  const choice = projectManager.explainChoice({
+    task: turn.task, role: turn.role, intent: turn.reason, budgetState,
+    route: explicit ? { ...route, chosenBy: 'person' } : route,
+    considered: candidatesFor(turn.task, hostRoutes()),
+  });
+  const key = `${turn.accountId}:${turn.conversationId || turn.projectId}`;
+  const previous = lastHandOf.get(key) || null;
+  if (!projectManager.shouldNarrate({ role: turn.role, code: choice.code, route, previous })) return null;
+  // Only a hand that was actually said is remembered, so the next turn is
+  // compared against the last thing the person was told rather than against
+  // something that was decided and kept quiet.
+  lastHandOf.set(key, projectManager.handKey({ role: turn.role, code: choice.code, route }));
+  if (lastHandOf.size > 5000) lastHandOf.delete(lastHandOf.keys().next().value);
+  return { sentence: choice.sentence, code: choice.code, provider: route.providerId, model: route.model || null };
+}
+
 function residentFinish(turn, dispatchId, result = {}) {
   if (!turn || !dispatchId) return;
   try { residentGateway.finish(turn, dispatchId, result); }
@@ -2275,6 +2567,16 @@ const entitlements = createEntitlementsService({
   aiSpendReader: aiSpendMicrounits,
 });
 
+// How a provisioned guest becomes a customer's own machine. Built here because
+// it needs both the ownership and the entitlements services: activation puts the
+// customer in an organization of their own and links it beneath the operator's,
+// which are the same three steps `account.create` performs and the reason this
+// does not write rows of its own. See control/activation.js.
+const activation = createActivationService ? createActivationService({
+  db, ownership, entitlements, bcrypt, newId: uid,
+  audit: (userId, action, _req, details) => audit(userId, action, null, details),
+}) : null;
+
 // Reseller administration joins the same execution path as everything else.
 // Pushed after the engine was built rather than before, because this backend
 // needs the two services above and they need `privilegedOps`, which the engine's
@@ -2369,6 +2671,110 @@ const serverOps = createServerOpsService({
   },
 });
 console.log(`[server-ops] engines: ${opsBackends.map(b => b.name).join(', ')}`);
+
+// ── The fleet, and the machines it is a fleet of ──────────────────
+//
+// A pool host is a Navigator install whose job is the physical host rather than
+// a customer. It is not a mode a customer's Navigator can enter: the fleet
+// routes and the machine routes below are mounted only where this is set, and
+// the root-side libvirt jobs are registered only there too.
+//
+// Absent, not refused. A route that exists and answers 403 still tells a caller
+// the feature is there and still has reachable code behind the refusal, so on a
+// customer's guest there is no route at all. See docs/FLEET_AND_MACHINES.md for
+// why this is an install role rather than a fifth rank in `ownership.js`.
+const FLEET_ROLE = String(process.env.JOTPANEL_FLEET_ROLE || '').trim().toLowerCase();
+const IS_POOL_HOST = FLEET_ROLE === 'pool-host';
+
+// The registry of guests and the collector that reads them. Guest credentials
+// are encrypted at rest with the same codec the action bodies use.
+const fleet = IS_POOL_HOST && createFleetService ? createFleetService({
+  db,
+  protect: value => encryptField(value, ENCRYPT_SECRET + '_fleet_guests'),
+  unprotect: value => decryptField(value, ENCRYPT_SECRET + '_fleet_guests'),
+  // Giving the guest a name a customer can reach. Writing an nginx vhost and
+  // reloading nginx needs root, so it goes over the privileged socket like every
+  // other change to this host's configuration; `machine.publish` is registered
+  // only on a pool host, so on a guest this is a job that does not exist. A pool
+  // host with no zone and no wildcard certificate answers "does not publish
+  // guests" and registration carries on unaffected. See control/guestProxy.js.
+  publishGuest: async ({ name, address }) => {
+    try { return await privilegedOps.run('machine.publish', { name, address }); }
+    catch (error) { return { published: false, reason: error.message }; }
+  },
+}) : null;
+
+// One-time enrollment, so a guest the panel made thirty seconds ago can join
+// the fleet with no human in it. The durable fleet.report key is minted by the
+// guest, inside the guest; what rides in cloud-init is a single-use ticket
+// that is worth nothing once spent. See control/fleetEnrollment.js.
+// Device trust: whether the machine asking is one this account enrolled, and
+// what a session on an unenrolled one may do. Not pool-host gated — it is a
+// property of every install, including a single-tenant one.
+//
+// The policy is read from this install's own settings so a hoster can set it
+// per guest, which the one-Navigator-per-VM model makes natural.
+const deviceTrust = createDeviceTrust({
+  db,
+  policy: {
+    // Off unless this install opts in. JotPanel and Navigator are the same
+    // program behind JOTPANEL_SHELL, so an unconditional default here would
+    // change a shipped product's behaviour, and the client half of a step-up
+    // does not exist yet. See control/deviceTrust.js.
+    enforce: (process.env.JOTPANEL_DEVICE_TRUST || '') === '1',
+    uploadsFromVisiting: (process.env.JOTPANEL_UPLOADS_FROM_VISITING || '') === '1',
+    downloadsFromVisiting: process.env.JOTPANEL_DOWNLOADS_FROM_VISITING || 'step_up',
+    fileRequestsEnabled: (process.env.JOTPANEL_FILE_REQUESTS || '') === '1',
+  },
+});
+
+// What the token says about HOW this session authenticated. Absent is treated
+// as the weakest case rather than the strongest, so an old token issued before
+// this existed is a visiting session and not a trusted one.
+function sessionFacts(req) {
+  return {
+    userId: req.user && req.user.id,
+    amr: (req.user && req.user.amr) || 'password',
+    deviceId: (req.user && req.user.deviceId) || null,
+    stepUpAt: (req.user && req.user.stepUpAt) || null,
+  };
+}
+
+// 428 Precondition Required, not 403: the difference between "confirm and try
+// again" and "you may not" is the whole point of a step-up, and a client that
+// cannot tell them apart will show the wrong thing to the person.
+function requireTrust(action) {
+  return (req, res, next) => {
+    const outcome = deviceTrust.check(action, sessionFacts(req));
+    if (outcome.allowed) return next();
+    audit(req.user && req.user.id, `device_trust_${outcome.decision}`, req, `${action} from a ${outcome.tier} device`);
+    return res.status(outcome.decision === 'step_up' ? 428 : 403).json({
+      error: outcome.reason,
+      step_up_required: outcome.decision === 'step_up',
+      device_tier: outcome.tier,
+      action,
+    });
+  };
+}
+
+const fleetEnrollment = IS_POOL_HOST && createFleetEnrollment ? createFleetEnrollment({
+  db, fleet, audit: (userId, action, req, details) => audit(userId, action, req, details),
+}) : null;
+
+// Machine provisioning. The adapter holds no hypervisor credential: it asks the
+// root-side operations service for a named job from a closed catalogue, which is
+// the same boundary the panel already has for Postfix. One backend is built;
+// `machines/contract.js` is what the other five have to satisfy.
+const machines = IS_POOL_HOST && createMachineService ? createMachineService({
+  adapter: createLibvirtMachineAdapter({
+    runJob: (job, params, options) => privilegedOps.run(job, params, options),
+  }),
+  store: actionStore,
+  ownership,
+  audit: (userId, action, req, details) => audit(userId, action, req, details),
+}) : null;
+
+if (IS_POOL_HOST) console.log('[fleet] this install is a pool host: fleet collection and machine provisioning are on');
 
 // Anything left mid-execution by a process that is no longer running is
 // resolved before the panel is much use, so the owner never reads a record that
@@ -3679,10 +4085,10 @@ function routeForTask(task, opts = {}) {
   const ov = opts.override && opts.override[task];
   if (ov && ov.providerId === 'byog') {
     const hit = deviceRoute(ov.modelId || null);
-    if (hit) return hit;
+    if (hit) return { ...hit, chosenBy: 'person' };
   } else if (ov && ov.providerId) {
     const hit = tryPair(ov.providerId, ov.modelId || opts.model);
-    if (hit && hit.model) return hit;
+    if (hit && hit.model) return { ...hit, chosenBy: 'person' };
   }
 
   // The user's own machine, before the routing table, for the work the table
@@ -3698,12 +4104,19 @@ function routeForTask(task, opts = {}) {
 
   // How models have done this kind of work for this account moves a failing
   // one down; it never adds a candidate the lists above did not allow.
+  const ranked = candidatesFor(task, hostRoutes());
   const prefs = opts.accountId && routingFit
-    ? routingFit.order(opts.accountId, TASK_ROLE[task] || 'chat', candidatesFor(task, hostRoutes()), ([pid, mid]) => `${pid}/${mid}`)
-    : candidatesFor(task, hostRoutes());
+    ? routingFit.order(opts.accountId, TASK_ROLE[task] || 'chat', ranked, ([pid, mid]) => `${pid}/${mid}`)
+    : ranked;
+  // Which candidate the table would have picked if fit had not reordered it:
+  // the first one that has a key. If the winner below is not that one, fit is
+  // the reason, and the explanation has to say so.
+  const untouched = ranked.find(([pid, mid]) => tryPair(pid, mid));
   for (const [pid, mid] of prefs) {
     const hit = tryPair(pid, mid);
-    if (hit) return hit;
+    if (!hit) continue;
+    const demoted = untouched && `${untouched[0]}/${untouched[1]}` !== `${pid}/${mid}`;
+    return demoted ? { ...hit, chosenBy: 'demoted', considered: ranked } : { ...hit, considered: ranked };
   }
 
   // Nothing keyed answered. The user's own machine beats this box's Resident,
@@ -4103,8 +4516,13 @@ async function proxyThinkingChat(req, res, staged = null, options = {}) {
 // Kept in the encrypted vault on this server and never in the browser. Nothing
 // here ever returns a key: saving answers with a fingerprint, listing reads
 // fingerprints and labels only.
+// Providers that do voice and no chat. They are keyable even though they are
+// absent from PROVIDERS_META, which lists what answers a chat request. A person
+// on a public terminal, or on a guest small enough that twenty fit on a machine,
+// has one of these or has no ear at all.
+const VOICE_ONLY_PROVIDERS = new Set(['elevenlabs', 'deepgram']);
 function keyableProvider(id) {
-  if (id === 'elevenlabs') return id;
+  if (VOICE_ONLY_PROVIDERS.has(id)) return id;
   return Object.prototype.hasOwnProperty.call(PROVIDERS_META, id) && !PROVIDERS_META[id].local ? id : null;
 }
 mountKeyVaultRoutes(app, { auth, providerKeys, audit, scrubSecrets, keyableProvider, hostAllowsByok, identityKey });
@@ -4294,6 +4712,55 @@ app.get('/api/resident/dispatches', auth, (req, res) => {
   }
   out.sort((a, b) => (a.at < b.at ? 1 : -1));
   res.json({ dispatches: out.slice(0, limit), fit: routingFit.report(req.user.id) });
+});
+
+// ── The project manager: where are we, what has it cost, and the limit ────────
+//
+// One bounded answer rather than the whole ledger. `brief` counts everything and
+// returns the newest few handoffs, so asking costs the same on a project with
+// seventy of them as on one with thirty. That is the difference between a
+// project manager and a transcript.
+app.get('/api/resident/projects/:id/brief', auth, (req, res) => {
+  try {
+    const handoffs = Math.max(0, Math.min(Number(req.query.handoffs) || 5, 25));
+    res.json(projectManager.brief(req.user.id, req.params.id, { handoffs }));
+  } catch (error) { buildError(res, error); }
+});
+
+// Spend per AI, per kind of work and per project. No project named means the
+// whole account, which is the screen a person opens when the bill surprises them.
+app.get('/api/resident/spend', auth, (req, res) => {
+  try {
+    const projectId = req.query.project ? String(req.query.project) : null;
+    res.json(projectManager.spend(req.user.id, { projectId }));
+  } catch (error) { buildError(res, error); }
+});
+
+// The limit. GET says what it is and how close the work is to it; PUT sets it.
+// A limit is money, so it is read and written in dollars here and held in
+// micro-dollars underneath, because a screen that asks for 4000000 is a screen
+// nobody uses correctly.
+app.get('/api/resident/budget', auth, (req, res) => {
+  const projectId = req.query.project ? String(req.query.project) : '';
+  const budget = projectManager.getBudget(req.user.id, projectId);
+  const guard = projectManager.guard(req.user.id, { projectId: projectId || null });
+  res.json({
+    budget: budget && { ...budget, cap: budget.capMicro == null ? null : budget.capMicro / 1e6, warnAt: budget.warnAtMicro == null ? null : budget.warnAtMicro / 1e6 },
+    state: guard.state, spent: guard.spentMicro / 1e6, sentence: guard.sentence,
+  });
+});
+app.put('/api/resident/budget', auth, (req, res) => {
+  const dollars = value => (value === null || value === undefined || value === '' ? null : Math.round(Number(value) * 1e6));
+  const cap = dollars(req.body?.cap);
+  const warnAt = dollars(req.body?.warnAt);
+  if (cap !== null && !Number.isFinite(cap)) return res.status(400).json({ error: req.t('A limit is an amount of money.') });
+  if (warnAt !== null && !Number.isFinite(warnAt)) return res.status(400).json({ error: req.t('A warning point is an amount of money.') });
+  try {
+    const projectId = req.body?.project ? String(req.body.project) : '';
+    const saved = projectManager.setBudget(req.user.id, { projectId, capMicro: cap, warnAtMicro: warnAt });
+    audit(req.user.id, 'resident.budget.set', req, { project: projectId || 'account', capMicro: cap, warnMicro: warnAt });
+    res.json({ budget: saved });
+  } catch (error) { res.status(400).json({ error: error.message }); }
 });
 
 // Builds that were running when the process stopped carry on.
@@ -4618,6 +5085,7 @@ app.post('/api/ai/chat', auth, async (req, res) => {
   let byogFallbackFrom = null;
   let keyFailover = null;
   let residentDispatchId = null;
+  let handoffSaid = null;
 
   try {
     let onDelta;
@@ -4652,6 +5120,18 @@ app.post('/api/ai/chat', auth, async (req, res) => {
       return out;
     };
     residentDispatchId = residentDispatch(residentTurn, route, { explicit: explicitChoice, sent: outboundFor(route).fields });
+
+    // The handoff, in plain words, as it happens rather than afterwards. It is
+    // recorded either way; this is the half the person was never told. A failure
+    // to compose a sentence must never cost somebody their answer, so the whole
+    // thing is inside a try and the chat carries on without it.
+    try {
+      handoffSaid = narrateHandoff(residentTurn, route, {
+        explicit: explicitChoice,
+        budgetState: projectManager.guard(req.user.id, { projectId: residentTurn.projectId }).state,
+      });
+      if (handoffSaid && wantStream) res.write(`data: ${JSON.stringify({ handoff: handoffSaid })}\n\n`);
+    } catch (error) { console.error('[resident] narrate', error.message); }
 
     const runRoute = r => callProvider({
       providerId: r.providerId, model: r.model, key: r.key,
@@ -4770,7 +5250,10 @@ app.post('/api/ai/chat', auth, async (req, res) => {
       // The staged proposal rides the same stream as the text, after the
       // reply so the approval card lands under Echo's own sentence about it.
       if (stagedAction) res.write(`data: ${JSON.stringify({ action: publicControlAction(stagedAction) })}\n\n`);
-      res.write(`data: ${JSON.stringify({ done: true, ...summary })}\n\n`);
+      // Repeated on done so a client that was not listening for the handoff
+      // event still has the sentence, rather than it existing only for clients
+      // written after it did.
+      res.write(`data: ${JSON.stringify({ done: true, ...(handoffSaid ? { handoff: handoffSaid } : {}), ...summary })}\n\n`);
       res.end();
     } else {
       let reply = out.text;
@@ -4793,7 +5276,7 @@ app.post('/api/ai/chat', auth, async (req, res) => {
           }
         }
       }
-      res.json({ reply, ...(stagedAction ? { action: publicControlAction(stagedAction) } : {}), ...summary });
+      res.json({ reply, ...(stagedAction ? { action: publicControlAction(stagedAction) } : {}), ...(handoffSaid ? { handoff: handoffSaid } : {}), ...summary });
     }
   } catch (e) {
     // Providers quote the key back in their refusals. That line goes to the
@@ -4899,7 +5382,10 @@ app.get('/admin/ai-health', operatorOrKey, (req, res) => {
 // The contract that makes it useful: `concerns` is empty when nothing is wrong.
 // An operator reads that array and nothing else. Every entry carries the number
 // that triggered it, so a threshold can be argued with.
-app.get('/admin/ops', operatorOrKey, async (req, res) => {
+// Factored out of the route for the same reason `computeTenantRows` was: the
+// fleet summary needs these numbers too, and a second copy would be a second
+// thing to audit. The route is now the two lines underneath it.
+async function computeOpsReport() {
   const os = require('os');
   const { execSync } = require('child_process');
   const sh = (cmd, fallback = null) => {
@@ -5059,7 +5545,26 @@ app.get('/admin/ops', operatorOrKey, async (req, res) => {
       'The service user lacks read access to the nginx log, the ssh journal or the certificate, so those readings are absent rather than clean. Grant read access or stop trusting those fields.');
   }
 
-  res.json({
+  // ── A box that had to regenerate its own secrets is not healthy ───
+  //
+  // jotpanel-firstboot.sh repairs a .env that an unclean power-cut left empty
+  // or incomplete, and it deliberately boots afterwards rather than refusing:
+  // refusing would recover nothing, would make the guest harder to diagnose and
+  // would take it out of the fleet, while the damage has already happened. What
+  // must not follow is this report then calling the box healthy.
+  //
+  // So the marker that repair leaves becomes a concern, which is this panel's
+  // existing way of saying a box is not well, and control/fleetSummary.js
+  // carries both the verdict and the sentence into the row a pool host draws.
+  // Critical where the encryption secret was the thing lost, because that is
+  // the one loss nothing on the box can undo. See control/secretsRepaired.js.
+  for (const concern of secretsRepairedConcerns({
+    installRoot: installRootFrom({ dataDir: DATA_DIR }),
+  })) {
+    warn(concern.severity, concern.what, concern.why);
+  }
+
+  return {
     checked_at: new Date().toISOString(),
     host: { cores, load1: Math.round(load1 * 100) / 100, mem_used_pct: memUsedPct,
             disk_used_pct: diskPct, uptime_days: uptimeDays },
@@ -5087,8 +5592,300 @@ app.get('/admin/ops', operatorOrKey, async (req, res) => {
     concerns,
     verdict: concerns.some(c => c.severity === 'critical') ? 'attention needed'
            : concerns.length ? 'watch' : 'healthy',
-  });
+  };
+}
+
+app.get('/admin/ops', operatorOrKey, async (req, res) => {
+  res.json(await computeOpsReport());
 });
+
+// ── What one guest tells a collector about itself ─────────────────
+//
+// A hosting company with twenty soft servers has twenty consoles and nowhere to
+// stand. This is the reading the place to stand is built out of.
+//
+// Every number is a projection of `computeOpsReport()` and
+// `computeTenantRows()`, which the guest's own console already draws, so this
+// re-derives nothing. `control/fleetSummary.js` names each field and why it is
+// in it, and what is deliberately left out.
+//
+// ── The two locks, and why both ──────────────────────────────────
+//
+// A key never exceeds the person who made it, so BOTH hold: the identity behind
+// the credential has to be the account that runs this box, AND where the caller
+// is a key, that key has to be scoped for this reading. Without the first, a
+// customer could issue themselves a `fleet.report` key and read every account
+// on the machine. Without the second, any key the operator ever made would read
+// it, which is the shared-password problem this route exists to avoid.
+//
+// Deliberately NOT `operatorOrKey`: that is the shared `ADMIN_KEY`, which is a
+// password rather than an identity — it cannot be revoked for one holder and
+// the audit log can only say that somebody with it called. A pool host holding
+// twenty guests' ADMIN_KEYs would be twenty passwords in one place. See
+// docs/FLEET_AND_MACHINES.md.
+app.get('/admin/fleet/summary', auth, async (req, res) => {
+  if (!summarizeForFleet) return res.status(404).json({ error: req.t('This product has no fleet') });
+  if (!isOperatorIdentity(req.user.id)) {
+    audit(req.user.id, 'fleet_summary_refused', req, 'not the account that runs this box');
+    return res.status(403).json({ error: req.t('That is the account that runs this box, and this one is not it') });
+  }
+  if (req.apiKey && !req.apiKey.permits(FLEET_REPORT_CAPABILITY)) {
+    audit(req.user.id, 'fleet_summary_scope_refused', req, `${req.apiKey.prefix}: not scoped for ${FLEET_REPORT_CAPABILITY}`);
+    return res.status(403).json({ error: req.t(`This key is not scoped for ${FLEET_REPORT_CAPABILITY}`) });
+  }
+  try {
+    // Both readings in parallel: they share no state and a guest under load
+    // should be asked once rather than twice in series.
+    const [ops, tenants] = await Promise.all([computeOpsReport(), computeTenantRows()]);
+    const cap = Number(process.env.AI_MONTHLY_CAP_USD || 0);
+    const summary = summarizeForFleet({
+      ops,
+      tenants,
+      fleet: {
+        accounts: tenants.length,
+        suspended: tenants.filter(t => t.suspended).length,
+        active_30d: tenants.filter(t => t.last_seen && (Date.now() - Date.parse(t.last_seen)) < 30 * 86400000).length,
+        sites: tenants.reduce((n, t) => n + t.sites, 0),
+        databases: tenants.reduce((n, t) => n + t.databases, 0),
+        mailboxes: tenants.reduce((n, t) => n + t.mailboxes, 0),
+        backups: tenants.reduce((n, t) => n + t.backups, 0),
+        storage_used_mb: Math.round(tenants.reduce((n, t) => n + t.storage.used_mb, 0) * 10) / 10,
+        ai_month_cost_usd: Math.round(tenants.reduce((n, t) => n + t.ai_month.cost_usd, 0) * 10000) / 10000,
+        ai_month_tokens: tenants.reduce((n, t) => n + t.ai_month.tokens, 0),
+      },
+      // Who answered, so a pool host can tell a reply apart from a reply it
+      // got from the wrong box. Read from this install's own configuration,
+      // never from the request.
+      guest: {
+        name: process.env.DOMAIN || null,
+        product: PRODUCT_NAME,
+        shell: SHELL,
+        version: (process.env.JOTPANEL_VERSION ?? process.env.ARCA_VERSION) || 'dev',
+      },
+    });
+    if (cap > 0) summary.spend.cap_usd = cap;
+    audit(req.user.id, 'fleet_summary_read', req, req.apiKey ? `key ${req.apiKey.prefix}` : 'signed in');
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── The fleet view, on the pool host ─────────────────────────────
+//
+// Mounted only on a pool host. Nothing below this point exists on a customer's
+// guest, which is why it is a block and not a flag inside each handler.
+if (IS_POOL_HOST) {
+  // The screen. One request per guest, and a row for every guest whether it
+  // answered or not: a fleet view that shows nineteen machines because the
+  // twentieth was unreachable is worse than no fleet view, because the
+  // twentieth is the one the hoster needs to see.
+  app.get('/admin/fleet', operatorOnly, async (req, res) => {
+    try { res.json(await fleet.report()); }
+    catch (error) { res.status(500).json({ error: error.message }); }
+  });
+
+  app.get('/admin/fleet/guests', operatorOnly, (req, res) => {
+    res.json({ guests: fleet.list() });
+  });
+
+  // ── What the hoster hands the customer, and the only way to get it ─
+  //
+  // `operatorOnly`, so it needs a signed-in account that runs this box: not the
+  // shared ADMIN_KEY, which is a password rather than an identity, and not an
+  // API key, because this route is not on the machine allowlist and a key is
+  // refused on it. The reading is recorded against the operator who asked, so
+  // "who has seen this customer's activation code" is an answerable question.
+  //
+  // It is a POST despite being a read, deliberately: a GET would be a URL that
+  // a browser keeps in history and a proxy writes to an access log, and what
+  // comes back is a credential.
+  app.post('/admin/fleet/guests/:id/activation', operatorOnly, (req, res) => {
+    try {
+      const out = fleet.revealActivation(req.params.id);
+      audit(req.user.id, out.code ? 'fleet_activation_shown' : 'fleet_activation_absent', req,
+        `${out.name}${out.first_time ? ' (first time)' : ''}`);
+      res.json(out);
+    } catch (error) {
+      res.status(404).json({ error: error.message });
+    }
+  });
+
+  // ── Enrollment ────────────────────────────────────────────────────
+  //
+  // THE ONE FLEET ROUTE WITH NO SESSION BEHIND IT, because the caller is a
+  // machine that booted ninety seconds ago and has nobody in it. The ticket is
+  // the credential, and it is deliberately the weakest kind: single-use, an
+  // hour long, bound to one machine name, and useless the moment it is spent.
+  //
+  // Everything that makes this safe is in control/fleetEnrollment.js and is
+  // tested there — the token is stored as a hash, consumed even when
+  // registration fails so a failed attempt cannot be retried against another
+  // address, and the guest's name is taken from the row rather than the
+  // request so a guest cannot enroll itself as something else.
+  //
+  // Rate limited separately from the sign-in budget: this is the only
+  // unauthenticated POST on a pool host, so an attacker with no ticket should
+  // run out of attempts long before they run out of guesses, and a real guest
+  // retrying a failed first boot should never notice the limit.
+  const enrollLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60,
+    message: { ok: false, reason: 'Too many enrollment attempts from this address.' },
+  });
+
+  app.post('/fleet/enroll', enrollLimiter, async (req, res) => {
+    try {
+      const result = await fleetEnrollment.redeem({
+        token: req.body?.token,
+        address: req.body?.address,
+        reportKey: req.body?.reportKey,
+        // The guest's certificate fingerprint, pinned so the collector can
+        // reach a private address at all. THIS LINE'S ABSENCE COST A RUN on
+        // 2026-10-04: the guest computed and sent it, fleetEnrollment accepted
+        // it and fleet.js stored it, and the row still had cert_sha256 NULL,
+        // because this object is an explicit field list and quietly dropped it.
+        // That is the THIRD time today a hand-written allowlist has discarded a
+        // field added below it - the others were machines/catalogue.js
+        // normalise() and the root-side job catalogue, which at least refused
+        // loudly. When adding a field to this path, grep for every place that
+        // names the others.
+        certSha256: req.body?.certSha256,
+      });
+      // A refusal is 403 rather than 400: the request was well formed and the
+      // ticket was not accepted, and the first-boot script's log should say
+      // which of those happened.
+      res.status(result.ok ? 200 : 403).json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, reason: error.message });
+    }
+  });
+
+  // ── A guest correcting its own address ────────────────────────────
+  //
+  // The second unauthenticated POST on a pool host, and for the same reason as
+  // the first: the caller is a machine that has just rebooted and has nobody in
+  // it. The credential is the announce secret issued at enrollment, which only
+  // that guest was given.
+  //
+  // WHAT THIS FIXES: a guest that is hard-powered-off and started again comes
+  // back on a different address. Measured twice on a real pool host; the guest
+  // recovers and the registry does not, because the row pins an address and the
+  // enrollment ticket is spent. Without this, any reboot loses the guest from
+  // Fleet until an operator re-registers it.
+  //
+  // WHAT IT CANNOT DO, which is most of the point: change a guest's name, its
+  // customer, its key, or any other guest's row. Address and expected
+  // certificate, for the one guest that holds the credential, and nothing else.
+  //
+  // Its own limiter, more generous than enrollment's because a guest that
+  // reboots in a loop should still be able to report itself, and still bounded
+  // because this is reachable without a session.
+  const announceLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 120,
+    message: { ok: false, reason: 'Too many address announcements from this address.' },
+  });
+
+  app.post('/fleet/announce', announceLimiter, async (req, res) => {
+    try {
+      const result = await fleet.reannounce({
+        guestId: req.body?.guestId,
+        secret: req.body?.secret,
+        address: req.body?.address,
+        // A guest can hold more than one address after an unclean reboot, so it
+        // offers all of them and the pool host keeps whichever answers.
+        addresses: req.body?.addresses,
+        certSha256: req.body?.certSha256,
+      });
+      if (result.ok) {
+        audit(null, 'fleet_guest_announced', req,
+          `${result.guest.name}${result.moved ? ` moved from ${result.from} to ${result.guest.address}` : ' re-announced the same address'}`
+          + `${result.recerted ? ', with a new certificate' : ''}`
+          + `, read back ${result.verified ? 'answering' : 'NOT answering'}`);
+      } else {
+        audit(null, 'fleet_guest_announce_refused', req, result.reason);
+      }
+      res.status(result.ok ? 200 : 403).json(result);
+    } catch (error) {
+      res.status(500).json({ ok: false, reason: error.message });
+    }
+  });
+
+  app.get('/admin/fleet/enrollments', operatorOnly, (req, res) => {
+    res.json({ pending: fleetEnrollment.pending() });
+  });
+
+  // Registering a guest changes nothing on any machine, so it is console
+  // configuration rather than a proposal. It is still read back: the guest is
+  // polled here, now, and the answer says whether it replied. A guest added
+  // with a wrong address or a revoked key says so at the moment it is added.
+  app.post('/admin/fleet/guests', operatorOnly, async (req, res) => {
+    try {
+      const result = await fleet.register({
+        name: req.body?.name,
+        address: req.body?.address,
+        token: req.body?.token,
+        createdBy: req.user.id,
+      });
+      audit(req.user.id, 'fleet_guest_registered', req,
+        `${result.guest.address}: ${result.verified ? 'answered' : `did not answer (${result.read_back.reason})`}`);
+      res.json(result);
+    } catch (error) { res.status(400).json({ error: error.message }); }
+  });
+
+  app.delete('/admin/fleet/guests/:id', operatorOnly, (req, res) => {
+    try {
+      const gone = fleet.forget(req.params.id);
+      audit(req.user.id, 'fleet_guest_forgotten', req, gone.address);
+      res.json({ ok: true, guest: gone });
+    } catch (error) { res.status(400).json({ error: error.message }); }
+  });
+
+  // ── Making a soft server ───────────────────────────────────────
+  //
+  // Propose, approve, execute, read back, on the durable action store, which is
+  // the only path a change is made by in this product. Nothing new was invented
+  // here; `machines/index.js` says what each step is for.
+  app.get('/admin/machines', operatorOnly, async (req, res) => {
+    try { res.json(await machines.read('machine.list', {}, { accountId: req.user.id })); }
+    catch (error) { res.status(error.forbidden ? 403 : 502).json({ error: error.message }); }
+  });
+
+  // Whether this pool host can provision at all, asked of the machine. The
+  // reason string is what the screen prints where the button would be, so it
+  // names the missing tool rather than saying "unavailable".
+  app.get('/admin/machines/capability', operatorOnly, async (req, res) => {
+    const probe = machines.adapter.probe ? await machines.adapter.probe() : { ok: false, reason: 'This backend cannot be probed' };
+    res.json({ backend: machines.adapter.name, isolation: machines.adapter.isolation, ...probe });
+  });
+
+  app.get('/admin/machines/actions', operatorOnly, (req, res) => {
+    res.json({ actions: machines.list({ limit: 50 }) });
+  });
+
+  app.post('/admin/machines/propose', operatorOnly, async (req, res) => {
+    try {
+      const action = await machines.propose(req.user.id, String(req.body?.operation || ''), req.body?.input || {}, {}, {});
+      res.json({ action });
+    } catch (error) { res.status(error.forbidden ? 403 : 400).json({ error: error.message }); }
+  });
+
+  app.post('/admin/machines/actions/:id/approve', operatorOnly, (req, res) => {
+    try { res.json({ action: machines.approve(req.params.id, req.user.id, { confirmText: req.body?.confirmText }) }); }
+    catch (error) { res.status(error.forbidden ? 403 : 400).json({ error: error.message }); }
+  });
+
+  app.post('/admin/machines/actions/:id/reject', operatorOnly, (req, res) => {
+    try { res.json({ action: machines.reject(req.params.id, req.user.id, { reason: req.body?.reason }) }); }
+    catch (error) { res.status(error.forbidden ? 403 : 400).json({ error: error.message }); }
+  });
+
+  app.post('/admin/machines/actions/:id/execute', operatorOnly, async (req, res) => {
+    try { res.json({ action: await machines.execute(req.params.id, req.user.id, {}) }); }
+    catch (error) { res.status(error.forbidden ? 403 : 400).json({ error: error.message, action: machines.get(req.params.id) }); }
+  });
+}
 
 // ── Reseller packages and entitlements ──────────────────────────────
 // Every write here is a catalogue operation, proposed, approved, executed and
@@ -5401,11 +6198,78 @@ app.post('/api/ai/transcribe', auth, express.raw({ type: ['audio/wav', 'audio/*'
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || `stt ${r.status}`);
-    res.json({ text: data.text || '' });
+    res.json({ text: data.text || '', heard: 'this server' });
   } catch {
+    // The ear has the same chain the voice has had since it was written, and
+    // for the same reason: a box that cannot hear used to answer 503 and the
+    // microphone simply did not work. That is the common case rather than the
+    // rare one. A guest sized so twenty of them fit on a machine has one core,
+    // and on one core Whisper falls back to the small model and mishears
+    // hostnames; a person on a public terminal has no helper of their own to
+    // fall back to either.
+    //
+    // Local first, because it is free and the words stay on the machine. Then
+    // the person's own key, because a key they chose to add is a choice they
+    // have already made. Nothing here reaches for the browser's own speech
+    // recognition: in Chrome and Safari that ships the audio to the browser
+    // vendor, and it is worse at unusual words than the model it would replace.
+    const held = hostAllowsByok() ? storedByok(req.user.id) : {};
+    for (const attempt of sttFallbacks(held)) {
+      try {
+        const text = await attempt.run(req.body);
+        if (text != null) return res.json({ text, heard: attempt.name });
+      } catch { /* try the next ear */ }
+    }
     res.status(503).json({ error: req.t('Echo listening is not available') });
   }
 });
+
+// The ears reachable with keys this person holds, in the order they are tried.
+// Each returns the text or throws. Audio is posted as multipart because every
+// one of these providers takes a file upload rather than a raw body.
+function sttFallbacks(held) {
+  const out = [];
+  const form = (wav, fields) => {
+    const body = new FormData();
+    body.append('file', new Blob([wav], { type: 'audio/wav' }), 'speech.wav');
+    for (const [k, v] of Object.entries(fields)) body.append(k, v);
+    return body;
+  };
+  if (held.openai && held.openai.key) {
+    out.push({ name: 'your OpenAI key', run: async (wav) => {
+      const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST', headers: { Authorization: `Bearer ${held.openai.key}` },
+        body: form(wav, { model: 'whisper-1' }), signal: AbortSignal.timeout(60000),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error?.message || `openai stt ${r.status}`);
+      return data.text || '';
+    } });
+  }
+  if (held.elevenlabs && held.elevenlabs.key) {
+    out.push({ name: 'your ElevenLabs key', run: async (wav) => {
+      const r = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST', headers: { 'xi-api-key': held.elevenlabs.key },
+        body: form(wav, { model_id: 'scribe_v1' }), signal: AbortSignal.timeout(60000),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail?.message || `elevenlabs stt ${r.status}`);
+      return data.text || '';
+    } });
+  }
+  if (held.deepgram && held.deepgram.key) {
+    out.push({ name: 'your Deepgram key', run: async (wav) => {
+      const r = await fetch('https://api.deepgram.com/v1/listen?smart_format=true', {
+        method: 'POST', headers: { Authorization: `Token ${held.deepgram.key}`, 'Content-Type': 'audio/wav' },
+        body: wav, signal: AbortSignal.timeout(60000),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.err_msg || `deepgram stt ${r.status}`);
+      return data.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+    } });
+  }
+  return out;
+}
 
 // GET /api/ai/catalogue — the three states, kept apart.
 //
@@ -5530,7 +6394,8 @@ app.get('/api/ai/meta', auth, async (req, res) => {
     assistantOps: { ...assistantOpsPolicy(req.user.id), operations: assistantProposals.OPERATIONS },
     // Whether this box can hear. Whisper is an optional install, so the panel
     // asks rather than offering a microphone button that can only fail.
-    listening: await canListen(),
+    listening: await canListen(req.user.id),
+    listeningSource: await listeningSource(req.user.id),
   });
 });
 
@@ -5562,12 +6427,28 @@ const TTS_BASE = `http://127.0.0.1:${TTS_PORT}`;
 // Asked on a screen load, so it answers fast or not at all: a box without the
 // speech service must not make the panel wait on a dead port.
 let listeningProbe = { at: 0, ok: false };
-async function canListen() {
-  if (Date.now() - listeningProbe.at < 60000) return listeningProbe.ok;
-  let ok = false;
-  try { ok = (await fetch(`${TTS_BASE}/health`, { signal: AbortSignal.timeout(700) })).ok; } catch { ok = false; }
-  listeningProbe = { at: Date.now(), ok };
-  return ok;
+async function canListen(userId = null) {
+  if (Date.now() - listeningProbe.at >= 60000) {
+    let ok = false;
+    try { ok = (await fetch(`${TTS_BASE}/health`, { signal: AbortSignal.timeout(700) })).ok; } catch { ok = false; }
+    listeningProbe = { at: Date.now(), ok };
+  }
+  if (listeningProbe.ok) return true;
+  // No Whisper on this machine is not the same as no ear. Reporting false here
+  // hides the microphone button, and a hidden button is a fallback that can
+  // never be reached.
+  if (!userId) return false;
+  try { return sttFallbacks(hostAllowsByok() ? storedByok(userId) : {}).length > 0; } catch { return false; }
+}
+
+// Which ear would answer, for a screen that wants to say so rather than only
+// offer a button. Local is named as this server because that is what a person
+// sees: the words do not leave the machine they are typing into.
+async function listeningSource(userId = null) {
+  if (listeningProbe.ok) return 'this server';
+  const held = hostAllowsByok() ? storedByok(userId) : {};
+  const first = sttFallbacks(held)[0];
+  return first ? first.name : null;
 }
 (function startResidentVoice() {
   // The venv and the weights are state and live beside the database, because an
@@ -5763,10 +6644,10 @@ app.put('/api/byog/policy', auth, (req, res) => {
 // pasting a session token into a terminal, which is the habit this whole
 // feature exists to avoid.
 app.get('/api/byog/helper', (req, res) => {
-  const file = path.join(__dirname, '..', 'tools', 'arca-byog-helper.js');
+  const file = path.join(__dirname, '..', 'tools', 'navigator-byog-helper.js');
   if (!fs.existsSync(file)) return res.status(404).json({ error: req.t('The helper is not installed on this deployment.') });
   res.set('Content-Type', 'application/javascript; charset=utf-8');
-  res.set('Content-Disposition', 'attachment; filename="arca-byog-helper.js"');
+  res.set('Content-Disposition', 'attachment; filename="navigator-byog-helper.js"');
   res.send(fs.readFileSync(file, 'utf8'));
 });
 
@@ -6962,7 +7843,12 @@ admin.post('/accounts/:id/2fa/reset', (req, res) => {
 //                                   length floor and no record. Nothing called
 //                                   it. A hoster resetting a customer's
 //                                   password is an account-lifecycle item and
-//                                   will be a catalogue operation.
+//                                   will be a catalogue operation. A person
+//                                   changing their OWN password is now
+//                                   `POST /api/me/password`, which takes no
+//                                   account id at all, proves the current
+//                                   password in the same request and records
+//                                   both outcomes.
 //   DELETE /accounts/:id            removed. It deleted the row and the uploads
 //                                   directory and left the sites serving, the
 //                                   mail arriving, the databases, the DNS zones
@@ -7017,6 +7903,14 @@ const BOOTSTRAP_PORT = parseInt((process.env.JOTPANEL_BOOTSTRAP_PORT ?? process.
 if ((process.env.JOTPANEL_BOOTSTRAP_PORT ?? process.env.ARCA_BOOTSTRAP_PORT) !== 'off') {
   const bootstrap = express();
   bootstrap.use(express.json({ limit: '1mb' }));
+  // The same language middleware `app` has, in the same position: after the body
+  // parser and before anything that answers. The `admin` router mounted below is
+  // written like every other handler in this file and says what it means through
+  // `req.t`, so without this the whole surface answers a TypeError rather than
+  // its own words. This attaches a translator and nothing else: it reads a
+  // header, grants no authority, and leaves `adminAuth`, the loopback listener
+  // and the `off` switch exactly as they were.
+  bootstrap.use(attachLanguage);
   // So the installer can wait for this listener rather than assume it, the way
   // it already waits for the panel's. Both are bound in the same tick, but "the
   // main port answered, therefore this one is up" is the kind of assumption
@@ -7071,8 +7965,33 @@ function recoveryCredentials() {
   const dir  = path.join(DATA_DIR, 'panel-tls');
   const crt  = path.join(dir, 'recovery.crt');
   const key  = path.join(dir, 'recovery.key');
+  // USABLE, not merely present. MEASURED ON A REAL GUEST 2026-10-04: this
+  // tested `existsSync` only, a hard power-cut left recovery.crt existing and
+  // EMPTY - the directory entry is journaled metadata and survives, the
+  // contents were never flushed and did not - and an empty file then sailed
+  // through this check, through the `if (creds)` guard below, and into
+  // https.createServer, which threw:
+  //
+  //   Error: error:0480006C:PEM routines::no start line
+  //   ERR_OSSL_PEM_NO_START_LINE
+  //
+  // That is an UNCAUGHT throw at startup, so THE WHOLE PANEL DIED. Any unclean
+  // shutdown left a guest whose panel refused to start for ever, over an
+  // optional convenience port. The guest was otherwise perfectly healthy:
+  // nginx was up and answering 502 because the thing behind it was gone.
+  const looksLikePem = file => {
+    try {
+      const text = fs.readFileSync(file, 'utf8');
+      return /-----BEGIN [A-Z ]*(PRIVATE KEY|CERTIFICATE)-----/.test(text);
+    } catch { return false; }
+  };
   try {
-    if (!fs.existsSync(crt) || !fs.existsSync(key)) {
+    if (!looksLikePem(crt) || !looksLikePem(key)) {
+      // Rewritten rather than refused, because a truncated pair is exactly as
+      // useless as a missing one and the guest can make another.
+      if (fs.existsSync(crt) || fs.existsSync(key)) {
+        console.warn('[jotpanel] the recovery port certificate is unusable, probably truncated by an unclean shutdown; writing a new one');
+      }
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       require('child_process').execFileSync('openssl', [
         'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650',
@@ -7080,7 +7999,22 @@ function recoveryCredentials() {
         '-keyout', key, '-out', crt,
       ], { stdio: 'ignore' });
       fs.chmodSync(key, 0o600);
+      // Flushed, so the next unclean shutdown does not reproduce the bug this
+      // comment exists for.
+      for (const file of [crt, key]) {
+        const fd = fs.openSync(file, 'r');
+        try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      }
+      const dirFd = fs.openSync(dir, 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
       console.log('[jotpanel] wrote a self-signed certificate for the recovery port');
+    }
+    // Checked once more after writing: a pair that still will not parse must
+    // not reach createServer, because the recovery port is a convenience and
+    // the panel is not.
+    if (!looksLikePem(crt) || !looksLikePem(key)) {
+      console.warn('[jotpanel] the recovery port has no usable certificate, so it is not opened. The panel itself is unaffected.');
+      return null;
     }
     return { cert: fs.readFileSync(crt), key: fs.readFileSync(key) };
   } catch (e) {
@@ -7090,9 +8024,17 @@ function recoveryCredentials() {
 }
 if ((process.env.JOTPANEL_PANEL_PORT ?? process.env.ARCA_PANEL_PORT) !== 'off') {
   const creds = recoveryCredentials();
-  if (creds) {
+  // Wrapped, and the wrap is the point rather than belt-and-braces. The
+  // recovery port is a convenience; the panel is the product. Anything thrown
+  // while opening it used to take the whole process down at startup, which on
+  // a real guest meant one truncated file made a healthy machine unbootable.
+  // A panel running without its recovery port is a smaller failure than no
+  // panel, and it says which it is.
+  if (creds) try {
     require('https').createServer(creds, app).listen(PANEL_PORT, '0.0.0.0', () => {
       console.log(`[jotpanel] Recovery port https://${DOMAIN || '0.0.0.0'}:${PANEL_PORT} (survives nginx)`);
     }).on('error', e => console.warn(`[jotpanel] recovery port ${PANEL_PORT} unavailable:`, e.message));
+  } catch (e) {
+    console.warn(`[jotpanel] the recovery port could not be opened (${e.code || e.message}), so it is off. The panel itself is running.`);
   }
 }

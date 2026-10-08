@@ -1617,5 +1617,21 @@
   "{label} was refused: {why}": "{label} a été refusé : {why}",
   "{n} more things are wrong with this domain.": "{n} autres choses sont erronées pour ce domaine.",
   "🔒 Keys are kept in this server's encrypted vault, never in your browser, and are shown back only as a fingerprint. They are sent only to the provider's own API. The primary provider is used for Echo and all AI features.": "🔒 Les clés sont conservées dans le coffre fort chiffré de ce serveur, jamais dans votre navigateur, et ne sont affichées que sous forme d'un empreinte. Elles sont envoyées uniquement à l'API du fournisseur lui-même. Le fournisseur principal est utilisé pour Echo et toutes les fonctionnalités AI.",
-  "Create a site and its certificate check will appear here.": "Créez un site et son vérificateur de certificat apparaîtra ici."
+  "Create a site and its certificate check will appear here.": "Créez un site et son vérificateur de certificat apparaîtra ici.",
+  "A code from your authenticator app, or a recovery code": "Un code de votre application d'authentification, ou un code de récupération",
+  "Change my password": "Changer mon mot de passe",
+  "Change your password": "Changer votre mot de passe",
+  "Changing your password…": "Changement de votre mot de passe…",
+  "Replace the password you sign in with. You will need the one you have now, in the same step.": "Remplacez le mot de passe avec lequel vous vous connectez. Vous aurez besoin de celui que vous avez actuellement, dans la même étape.",
+  "The password you have now": "Le mot de passe que vous avez actuellement",
+  "The two new passwords do not match.": "Les deux nouveaux mots de passe ne correspondent pas.",
+  "The two new passwords do not match. Check the second box.": "Les deux nouveaux mots de passe ne correspondent pas. Vérifiez le deuxième champ.",
+  "Your new password": "Votre nouveau mot de passe",
+  "Your new password again": "Votre nouveau mot de passe à nouveau",
+  "Your passkeys are untouched by this.": "Vos passkeys ne sont pas affectées par ceci.",
+  "Your password is changed.": "Votre mot de passe est changé.",
+  "Your second factor stays on afterwards, and your passkeys are untouched.": "Votre second facteur reste actif ensuite, et vos passkeys ne sont pas modifiées.",
+  "a code is needed too": "un code est également nécessaire",
+  "at least {count} characters": "au moins {count} caractères",
+  "Your password is changed. Sessions already signed in elsewhere stay signed in until they expire.": "Votre mot de passe est changé. Les sessions déjà connectées ailleurs restent connectées jusqu'à leur expiration."
 }

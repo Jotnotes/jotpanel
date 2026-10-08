@@ -15,6 +15,12 @@ const tls = require('tls');
 const zlib = require('zlib');
 const { execFile } = require('child_process');
 const { inspectImapSource } = require('./imapSource');
+// Navigator-only, and absent from a JotPanel bundle. Registered below only on
+// a pool host, so a build without it is a build that could never have called
+// it; required this way so the ops daemon starts on one.
+let createMachineJobs = null;
+try { ({ createMachineJobs } = require('./machineJobs')); }
+catch (error) { if (error.code !== 'MODULE_NOT_FOUND' || error.requireStack[0] !== __filename) throw error; }
 const { hashPassword, renderHtpasswd, parseHtpasswd, renderAuthLocation, addOrReplaceUser, removeUser } = require('./siteProtect');
 const {
   FAILURE_CODES,
@@ -46,6 +52,10 @@ const DOVECOT_USERS = '/etc/dovecot/jotpanel-users';
 const DOVECOT_CONFIG = '/etc/dovecot/conf.d/99-jotpanel-panel.conf';
 const DB_PREFIX = cleanPrefix((process.env.JOTPANEL_OPS_DB_PREFIX ?? process.env.ARCA_OPS_DB_PREFIX) || 'jotpanel');
 const OUTPUT_LIMIT = 300 * 1024 * 1024;
+// Whether this machine is a pool host. Read from the environment the installer
+// writes, never from a request: a job catalogue that could be widened by a
+// caller is not a closed catalogue.
+const POOL_HOST = String(process.env.JOTPANEL_FLEET_ROLE || '').trim().toLowerCase() === 'pool-host';
 
 function runFile(file, args = [], options = {}) {
   return new Promise(resolve => {
@@ -1419,6 +1429,21 @@ function documentRoot(site) {
   return target;
 }
 
+// An absolute document root is refused rather than quietly turned into a
+// relative one. "/var/www/x/public" used to have its leading slash stripped and
+// come out as a four-deep folder mirrored inside the site, which is not the path
+// the person typed and is not a path they can reason about. Two copies of this
+// refusal on purpose — the catalogue's `relativeRoot` is the first — because
+// this is the one that stands between a parameter and a root-owned filesystem
+// and has to hold even if something above it is loosened.
+function siteRelativeRoot(value, fallback = 'public') {
+  const given = value == null || String(value).trim() === '' ? fallback : String(value).trim();
+  if (given.startsWith('/')) {
+    throw new Error('The document root is a folder inside the site, not a path on the server: write it as public, or public_html/shop, with no leading slash.');
+  }
+  return given;
+}
+
 function nginxGroup() {
   const configured = fs.readFileSync('/etc/nginx/nginx.conf', 'utf8').match(/^\s*user\s+([A-Za-z0-9_-]+)(?:\s+([A-Za-z0-9_-]+))?\s*;/m);
   const user = configured?.[1] || 'www-data';
@@ -1476,12 +1501,121 @@ async function removeSiteUser(name) {
   return { user, removed: !userExists(user) };
 }
 
+// A document root deeper than one folder invents the folders in between, and
+// those folders are the ones that broke.
+//
+// `documentRoot` strips a leading slash, so documentRoot:"/var/www/x/public"
+// becomes var/www/x/public *inside* the site and three directories are created
+// to mirror it. `ensureDir` chmods only the directory it is handed, and
+// `mkdirSync` applies its mode to parents it creates but never re-modes one that
+// already exists — so var, var/www and var/www/x were left root:root 0750 while
+// only the leaf was handed to the site user and the nginx group. nginx is
+// neither root nor in group root, so it had no SEARCH permission on the way
+// down and every request answered 404 with `stat() ... failed (13: Permission
+// denied)` in the error log. MEASURED on a clean install of this release.
+//
+// The same shape as the machine root at 0711 in machineJobs.js, fixed on real
+// hardware on 2026-10-04 for the same reason: a service that is not root needs
+// --x on every parent of a file it opens.
+function mirroredDocumentDirs(site) {
+  const base = siteBase(site.domain);
+  const dirs = [];
+  let cursor = path.dirname(documentRoot(site));
+  while (cursor !== base && cursor.startsWith(`${base}${path.sep}`)) { dirs.unshift(cursor); cursor = path.dirname(cursor); }
+  return dirs;
+}
+
+// 0711 and not one bit more. `--x` is search without read: the web server, and
+// the site's own PHP pool, can walk through to the document root, and neither
+// one — nor any other site's pool — can list what is kept in here. No write bit
+// for group or other anywhere, which also keeps sshd willing to chroot the
+// site's SFTP user at the base above.
+const MIRRORED_DIR_MODE = 0o711;
+
+function ensureMirroredDocumentDirs(site) {
+  const dirs = mirroredDocumentDirs(site);
+  for (const dir of dirs) {
+    fs.mkdirSync(dir, { recursive: true, mode: MIRRORED_DIR_MODE });
+    // chmod as well as mkdir, because mkdirSync does not re-mode a directory
+    // that already exists: a machine installed before this fix keeps the 0750
+    // it was given and would go on serving 404 after the upgrade.
+    fs.chmodSync(dir, MIRRORED_DIR_MODE);
+    // The worker is root. Guarded so the unit test, which is not, exercises the
+    // modes rather than dying on an ownership it cannot set.
+    if (process.getuid && process.getuid() === 0) fs.chownSync(dir, 0, 0);
+  }
+  return dirs;
+}
+
+// Which account the web server actually runs as, and every group it is in, so a
+// permission question is answered about that account rather than about root.
+function webServiceAccount() {
+  const configured = fs.readFileSync('/etc/nginx/nginx.conf', 'utf8').match(/^\s*user\s+([A-Za-z0-9_-]+)(?:\s+([A-Za-z0-9_-]+))?\s*;/m);
+  const user = configured?.[1] || 'www-data';
+  const record = passwdRecord(user);
+  if (!record) throw new Error(`The nginx user ${user} does not exist`);
+  const gids = new Set([record.gid, nginxGroup()]);
+  for (const line of fs.readFileSync('/etc/group', 'utf8').split('\n')) {
+    const parts = line.split(':');
+    if (parts.length < 4) continue;
+    if (parts[3].split(',').map(name => name.trim()).includes(user)) gids.add(Number(parts[2]));
+  }
+  return { user, uid: record.uid, gids: [...gids] };
+}
+
+// The permission bits POSIX applies to this account on this file: owner, else
+// group, else other — the first match and only that one, which is why a 0750
+// directory owned by root is closed to www-data however many groups it is in.
+function bitsFor(stat, account) {
+  if (account.uid === 0) return 7;
+  if (stat.uid === account.uid) return (stat.mode >> 6) & 7;
+  if (account.gids.includes(stat.gid)) return (stat.mode >> 3) & 7;
+  return stat.mode & 7;
+}
+
+function modeOf(stat) { return (stat.mode & 0o7777).toString(8).padStart(4, '0'); }
+
+// The read-back for "can this site be served at all". Walks every component of
+// the document root from the filesystem root down, names the first directory the
+// web server cannot enter, and then checks it can read the entry file. Returns
+// null when the whole chain works, or one plain sentence saying why it does not.
+// `from` is the filesystem root in production and nothing in the panel passes
+// anything else: the whole chain is what matters, because one unsearchable
+// directory anywhere along it is a 404. The unit test starts the walk lower
+// down, because the temp directory a developer's machine hands a test is 0700
+// and private to that developer, which has nothing to do with what is tested.
+function documentRootAccessFailure(root, account, entryFile = null, { from = path.sep } = {}) {
+  const start = path.resolve(from);
+  const walk = start === path.sep ? root : path.relative(start, root);
+  let cursor = start;
+  for (const part of walk.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, part);
+    let stat;
+    try { stat = fs.statSync(cursor); }
+    catch { return `${cursor} is not there, so the web server has nothing to serve`; }
+    if (!stat.isDirectory()) return `${cursor} is not a directory, so the web server has nothing to serve`;
+    if (!(bitsFor(stat, account) & 1)) {
+      return `the web server runs as ${account.user} and cannot enter ${cursor}, which is mode ${modeOf(stat)} owned by ${stat.uid}:${stat.gid} — every request for this site would answer 404 until that directory can be searched`;
+    }
+  }
+  if (entryFile && fs.existsSync(entryFile)) {
+    const stat = fs.statSync(entryFile);
+    if (!(bitsFor(stat, account) & 4)) {
+      return `the web server runs as ${account.user} and cannot read ${entryFile}, which is mode ${modeOf(stat)} owned by ${stat.uid}:${stat.gid}`;
+    }
+  }
+  return null;
+}
+
 function prepareDocumentRoot(site) {
   const root = documentRoot(site);
   const gid = nginxGroup();
   ensureDir(SITE_ROOT, 0o755);
   ensureDir(siteBase(site.domain), 0o750);
   ensureDir(root, 0o750);
+  // Everything invented between the base and the leaf, made searchable. Without
+  // this the leaf is correct and unreachable.
+  ensureMirroredDocumentDirs(site);
   // Three layers, and the middle one is not an accident. The tree above stays
   // root owned and traversable because nginx has to walk into it. The site's
   // own base is root owned too, because sshd refuses to chroot into a directory
@@ -1739,6 +1873,9 @@ async function siteCreate(params) {
   const name = domain(params.domain);
   const state = readSites();
   if (state.sites.some(site => site.domain === name)) throw new Error(`${name} is already configured`);
+  // Refused before anything is created, so a document root this panel will not
+  // serve does not leave a system user and a PHP pool behind it.
+  const relativeRoot = siteRelativeRoot(params.documentRoot);
 
   const owner = await ensureSiteUser(name);
   // PHP is optional. A box with no PHP still gets a working static site rather
@@ -1747,7 +1884,7 @@ async function siteCreate(params) {
   const version = php.default;
 
   const site = {
-    domain: name, aliases: [], document_root: String(params.documentRoot || 'public'),
+    domain: name, aliases: [], document_root: relativeRoot,
     redirect: null, force_https: false,
     user: owner.user, owner_uid: owner.uid,
     php: version || null,
@@ -1776,6 +1913,13 @@ async function siteCreate(params) {
   // Isolation is the point, so it is checked rather than assumed: the site owns
   // its own tree, and where there is a pool it is listening on its own socket.
   if (fs.statSync(root).uid !== owner.uid) throw new Error(`${name} was created but its document root is not owned by ${owner.user}`);
+  // And that the web server can actually reach it. Owning the leaf says nothing
+  // about the way down to it: this panel reported "executed" for a site whose
+  // intermediate directories nginx could not enter, and the only honest way to
+  // stop that is to answer the serving question itself rather than a proxy for
+  // it. Checked after the reload, so what is checked is the live path.
+  const unreachable = documentRootAccessFailure(root, webServiceAccount(), index);
+  if (unreachable) throw new Error(`${name} was created but it cannot be served: ${unreachable}`);
   if (version && !(await waitUntil(() => fs.existsSync(phpSocketPath(name)))))
     throw new Error(`${name} has a PHP pool but nothing is listening on ${phpSocketPath(name)}`);
 
@@ -6121,7 +6265,9 @@ async function siteDelete(params) {
 
 async function siteDocumentRoot(params) {
   const name = domain(params.domain);
-  const relative = String(params.documentRoot || '').trim().replace(/^\/+/, '');
+  // The same refusal as site.create, because the same absolute path arrives
+  // here and used to have its leading slash stripped in exactly the same way.
+  const relative = siteRelativeRoot(params.documentRoot, '');
   const state = readSites(); const site = state.sites.find(entry => entry.domain === name);
   if (!site) throw new Error(`${name} is not managed by this panel`);
   site.document_root = relative;
@@ -6132,6 +6278,10 @@ async function siteDocumentRoot(params) {
   fs.chmodSync(index, 0o640);
   writeSiteConfig(site); writeState(SITE_STATE, state);
   const reload = await validateAndReloadNginx(); const after = (await siteList()).sites.find(entry => entry.domain === name);
+  // The same read-back as creation: a new document root the web server cannot
+  // walk into is a 404, so it is a failure here and not an executed change.
+  const unreachable = documentRootAccessFailure(root, webServiceAccount(), index);
+  if (unreachable) throw new Error(`${name} now points at a document root it cannot be served from: ${unreachable}`);
   return { domain: name, document_root: after.document_root, reload, verified: true };
 }
 
@@ -6885,6 +7035,21 @@ const SPECS = {
   'mail.domain.suspend': [['domain', 'suspended'], mailDomainSuspend],
   'mail.queue.list': [[], mailQueueList],
   'mail.queue.action': [['verb', 'id'], mailQueueAction],
+
+  // Making the machine a panel is installed into, rather than changing a
+  // machine a panel is already on. Registered only on a pool host.
+  //
+  // Absent, not refused. A customer's guest never has these jobs in its
+  // catalogue at all, so `machine.create` over that guest's socket answers
+  // UNKNOWN_JOB — there is nothing to refuse and nothing reachable behind a
+  // refusal. The web half is gated the same way, by never mounting the routes,
+  // and both are kept because they fail differently: this survives somebody
+  // mounting the routes on a guest, and that survives somebody setting the
+  // environment variable on one.
+  //
+  // See docs/FLEET_AND_MACHINES.md for why a pool host is a separate Navigator
+  // install rather than a role a customer's panel can enter.
+  ...(POOL_HOST && createMachineJobs ? createMachineJobs({ runFile, command, must }) : {}),
 };
 
 async function executeNamedJob(name, params = {}) {
@@ -6908,4 +7073,5 @@ module.exports = {
   // Exported for the containment tests only. `sitePath` is the boundary between
   // a customer's path and a root-owned write, and it is worth being able to test
   // directly rather than only through an operation that needs a real machine.
-  __testing: { sitePath, settleServiceState, SETTLING_UNIT_STATES } };
+  __testing: { sitePath, settleServiceState, SETTLING_UNIT_STATES,
+    documentRoot, siteRelativeRoot, mirroredDocumentDirs, ensureMirroredDocumentDirs, documentRootAccessFailure, MIRRORED_DIR_MODE } };

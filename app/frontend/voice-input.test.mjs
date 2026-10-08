@@ -56,3 +56,26 @@ await assert.rejects(() => startRecording().done);
 assert.equal(stopped, 1, "the microphone is released when a recording fails");
 
 console.log("voice input checks passed — this panel's own ear, released microphone, honest failure");
+
+// ── The microphone does not hear Echo talking ────────────────────────────────
+//
+// Echo speaks through the same speakers the microphone sits in front of, so a
+// raw stream means the ear transcribes Echo's own voice as though somebody had
+// said it. Dictating to something that talks back is the normal way this is
+// used, so this is the normal case rather than an edge.
+{
+  const { MIC_CONSTRAINTS } = await import('./voice-input.js');
+  assert.equal(MIC_CONSTRAINTS.audio.echoCancellation, true, 'the microphone would hear Echo itself');
+  assert.equal(MIC_CONSTRAINTS.audio.noiseSuppression, true, 'the room is not taken out of the recording');
+  assert.equal(MIC_CONSTRAINTS.audio.autoGainControl, true, 'somebody leaning back goes quiet');
+
+  // Both shells open their own microphone, so both have to ask the same thing.
+  const fs = await import('node:fs');
+  for (const file of ['voice-input.js', 'arca-webos.jsx']) {
+    const src = fs.readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.ok(!/getUserMedia\(\s*\{\s*audio:\s*true\s*\}/.test(src),
+      `${file} asks for a raw microphone, so it will hear Echo`);
+    assert.ok(src.includes('MIC_CONSTRAINTS'), `${file} does not use the shared microphone constraints`);
+  }
+  console.log('microphone checks passed — cancellation on, both shells ask the same');
+}

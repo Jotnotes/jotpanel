@@ -2,16 +2,16 @@
 
 // BYOG — the model on the user's own machine.
 //
-// Arca already knows two kinds of brain. The Resident is an OpenAI-compatible
-// engine on the box Arca itself runs on, free and private to that box. A
+// Navigator already knows two kinds of brain. The Resident is an OpenAI-compatible
+// engine on the box Navigator itself runs on, free and private to that box. A
 // Frontier is somebody's cloud API reached with a key. Neither of them is the
 // thing a person means when they say "I have a 4090 at home and I would rather
 // use that". Their machine is behind a router they are not going to reconfigure
-// and it must never be reachable from the internet, so Arca cannot dial it.
+// and it must never be reachable from the internet, so Navigator cannot dial it.
 //
 // So the connection is made the only way round that works: the machine dials
 // out. A small helper on the user's computer holds one long-lived outbound HTTP
-// request open, Arca writes inference jobs down it, and the helper posts the
+// request open, Navigator writes inference jobs down it, and the helper posts the
 // answer back. No inbound port, no NAT rule, no tunnel to configure, and the
 // local engine keeps listening only to its own loopback exactly as
 // `localEngineSecurity` requires of the Resident.
@@ -35,13 +35,13 @@
 //   nonce the job was issued with, so a replayed result is dropped.
 // - Prompt content is never written to the database. Jobs live in memory for
 //   the length of the request and the row on disk holds counters, timings and
-//   error text only. What Arca knows about a BYOG conversation afterwards is
+//   error text only. What Navigator knows about a BYOG conversation afterwards is
 //   that it happened, how long it took and whether it worked.
 //
-// What this does NOT claim: the prompt still passes through Arca. Arca builds
+// What this does NOT claim: the prompt still passes through Navigator. Navigator builds
 // the system prompt, so it necessarily sees the request on its way to the
 // device. BYOG moves the INFERENCE to the user's hardware, it does not make
-// Arca blind. See docs/BYOG.md, "Where the words actually go".
+// Navigator blind. See docs/BYOG.md, "Where the words actually go".
 
 const crypto = require('crypto');
 
@@ -516,7 +516,7 @@ function createByogService({
   // What crosses the link is a structured inference job and never a command, a
   // URL or a shell string. The helper picks its own endpoint out of its own
   // config; nothing here can redirect it, which is the property that makes a
-  // compromised Arca unable to turn a user's laptop into an outbound proxy.
+  // compromised Navigator unable to turn a user's laptop into an outbound proxy.
   function dispatch({ userId, deviceId, model, system, messages, maxTokens, onDelta, signal }) {
     const device = ownedDevice(userId, deviceId);
     if (!device) throw new ByogError('unknown_device', 'That device is not on this account.');
@@ -585,7 +585,7 @@ function createByogService({
         const text = (result && typeof result.text === 'string' && result.text) ? result.text : collected;
         // An empty answer is a failure, not an answer. The end-to-end run found
         // this the hard way: an engine returning malformed lines produced no
-        // tokens, the helper reported success with an empty string, and Arca
+        // tokens, the helper reported success with an empty string, and Navigator
         // handed the user a blank reply from their own computer while another
         // brain was sitting there able to answer. Empty means fall back.
         if (!text || !text.trim()) {

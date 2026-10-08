@@ -14,6 +14,17 @@
 # Adding a line here is a decision about what a customer receives. If you are
 # not sure, leave it out and let the build fail: a missing file is a broken
 # install somebody notices, and an extra file is a leak nobody does.
+#
+# This list is shared by the two products and says what MAY ship. It is no
+# longer the whole boundary. A file that belongs to one product and not the
+# other usually arrives here by a line that never says its name — the five
+# Navigator files under `control/` all come in on `control/**/*.js` — so
+# narrowing a line is not a way to take them out. The panel's removals are
+# named one at a time in BUNDLE_EXCLUDE.panel.txt and applied before the gate
+# runs. Read the two together, and note which way each is closed: that file
+# can only take things away, this one is still the only thing that lets
+# anything through, and a staged file neither of them accounts for still fails
+# the build.
 
 # ── The panel itself ─────────────────────────────────────────────
 app/backend/*.js
@@ -27,6 +38,31 @@ app/backend/control/**/*.js
 # a release.
 app/backend/control/modelCatalogue.json
 app/backend/provisioning/**/*.js
+# Machine provisioning: making the VM a panel is installed INTO, as opposed to
+# `provisioning/` above, which makes accounts and sites inside one panel.
+#
+# NAVIGATOR ONLY. This line now reaches the Navigator bundle and nothing else:
+# `app/backend/machines` is the first entry in BUNDLE_EXCLUDE.panel.txt, so a
+# panel bundle never carries it.
+#
+# It stays here, rather than moving to the Navigator list, because a pool host
+# and its guests are built from the one Navigator bundle and both need it — a
+# pool host is a Navigator install with `JOTPANEL_FLEET_ROLE=pool-host` set.
+# Three things keep it off a Navigator customer's guest: the routes are never
+# mounted without that variable, the root-side libvirt jobs are never
+# registered in the privileged catalogue without it, and the hypervisor is
+# reached only through those jobs.
+#
+# That argument was once used for shipping it to everybody, and it does not
+# reach that far. It says a Navigator guest is safe holding code its own pool
+# host might switch on. A JotPanel customer has no pool host and bought no
+# fleet, so there is nothing for the code to be dormant for.
+#
+# Shipping the code is not shipping the credential. A customer is already root
+# on their own guest and could install libvirt themselves; what matters is that
+# nothing here reaches another tenant, and a guest has no other tenant on it.
+# See docs/FLEET_AND_MACHINES.md.
+app/backend/machines/**/*.js
 app/backend/maintenance/**/*.js
 
 # Which product this bundle is. Written by the bundle script; always panel.
@@ -75,6 +111,64 @@ app/deploy/*.template
 app/deploy/*.md
 app/deploy/.env.production
 app/deploy/BUNDLE_ALLOWLIST.txt
+# The per-product list, read alongside this one, so an installed box can say
+# what it was allowed to carry — the same reason this file ships. NAVIGATOR
+# ONLY in practice: BUNDLE_EXCLUDE.panel.txt takes it back out of a panel
+# bundle, where a list of the paid product's files would only describe what is
+# not there.
+app/deploy/BUNDLE_ALLOWLIST.navigator.txt
+
+# The other half of the panel's boundary: the paths a panel bundle must not
+# carry although the lines above name them. It ships for the same reason the
+# allowlists do — an installed box should be able to say what it was and was
+# not allowed to carry, and on a panel the second list is the interesting one.
+app/deploy/BUNDLE_EXCLUDE.panel.txt
+
+# First-boot fleet enrollment, for a guest made from a Navigator image. Named
+# here rather than caught by `app/deploy/*.sh` because neither is a shell
+# script, and deliberately rather than by widening that glob: the allowlist
+# exists to make somebody say what a new file is doing in a customer's bundle.
+#
+# NAVIGATOR ONLY, by way of BUNDLE_EXCLUDE.panel.txt. The Navigator image is
+# built from the Navigator bundle, so leaving them out of that one would mean
+# the one place they are needed is the one place they are missing. A JotPanel
+# install is never imaged from and has no pool host to enroll with, so the
+# argument that they are harmless because the unit is never enabled is beside
+# the point there: nothing on that box would ever enable it, which is a reason
+# not to send it rather than a reason it is fine to.
+app/deploy/jotpanel-enroll.js
+app/deploy/jotpanel-enroll.service
+# Per-guest secret generation, which runs Before=jotpanel.service on an
+# imaged guest. Not a *.sh match by accident: it is named here so that
+# removing it is a deliberate act, because a guest without it does not boot.
+app/deploy/jotpanel-firstboot.service
+# Address re-announcement, which runs on EVERY boot rather than only the first.
+# Named here deliberately: without it a guest that reboots onto a different
+# address is lost from its pool host's fleet until somebody re-registers it.
+app/deploy/jotpanel-announce.js
+app/deploy/jotpanel-announce.service
+
+# ── The tests a customer runs ────────────────────────────────────
+#
+# Every `*.test.js` is excluded from staging, and that is still right for the
+# ninety-odd development suites. These six are copied back in by the build
+# script and so have to be named here as well, because the gate judges what is
+# staged and does not care how it got there.
+#
+# They are what `npm test` runs on an installed box. Each one passes with
+# nothing running, needs no network and no credentials, and touches only files
+# this bundle carries. Before them, `npm test` ran a suite for a product that
+# no longer exists and reported twenty-four failures against a healthy panel.
+#
+# Adding a seventh means adding it in both places and checking it still passes
+# on a box with no server up. The full developer suite is `npm run test:unit`
+# and is not shipped.
+app/backend/control/panelSettings.test.js
+app/backend/control/layoutCompatibility.test.js
+app/backend/control/control.test.js
+app/backend/control/twoFactor.test.js
+app/backend/control/apiKeys.test.js
+app/frontend/panel-storage.test.mjs
 
 # ── Written by the build ─────────────────────────────────────────
 app/BUNDLE_CONTENTS.txt

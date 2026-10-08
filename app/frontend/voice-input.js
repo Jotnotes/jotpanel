@@ -1,7 +1,11 @@
 // The ear, in the browser half. Recording is decoded to 16kHz mono 16-bit WAV
 // here so the server needs no audio tooling, and the WAV goes to this panel's
-// own /api/ai/transcribe, which runs Whisper on the box. Speech never reaches
-// anyone else: no browser speech API, no third-party recogniser.
+// own /api/ai/transcribe.
+//
+// Nothing in the browser ever recognises speech: no browser speech API, so the
+// audio is never handed to Chrome's or Safari's own service. Where it goes after
+// the panel is the panel's decision and the person's: Whisper on the box first,
+// and otherwise an ear they hold a key for, which the reply names.
 //
 // Lifted from the desktop shell, which has carried it since Brilliant. The one
 // difference worth stating: there, speech is a conversation and a finished
@@ -9,7 +13,30 @@
 // server administration is full of strings speech-to-text mangles — a domain,
 // a mailbox, a DKIM record — and reading it before sending costs one glance.
 
+
 import { readPanelStorage } from "./panel-storage.js";
+
+// What the microphone is asked for, in one place, because the desktop and the
+// panel each open their own and a difference between them is a bug nobody sees
+// until a room echoes.
+//
+// Echo speaks out loud through the same speakers this microphone is sitting in
+// front of. Asked for bare `{ audio: true }`, the browser is free to hand back a
+// raw stream, and the ear then hears Echo's own voice and transcribes it as
+// though somebody had said it. Dictating to something that is talking back is
+// the normal way this feature is used, so this is the normal case.
+//
+// Echo cancellation subtracts what is being played from what is heard. Noise
+// suppression takes out the room. Automatic gain keeps a person who leans back
+// from going quiet. All three are things the browser already knows how to do and
+// will not do unless asked.
+export const MIC_CONSTRAINTS = Object.freeze({
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+});
 
 export async function audioBlobToWav16k(blob) {
   const raw = await blob.arrayBuffer();
@@ -81,7 +108,7 @@ export function voiceInputSupported() {
 export function startRecording({ onLevels } = {}) {
   let stop = () => {};
   const done = (async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
     const recorder = new MediaRecorder(stream);
     const chunks = [];
     recorder.ondataavailable = event => event.data.size && chunks.push(event.data);
