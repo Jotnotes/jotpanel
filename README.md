@@ -13,6 +13,25 @@ That rule has a name: **VACP™**. Every change, whether you click it, ask Echo 
 asks for it through MCP, is proposed, approved by a person, executed and then read back. MCP is how
 your AI reaches the panel. VACP is what it meets when it gets there, and it is JotPanel's own.
 
+[![Latest release](https://img.shields.io/github/v/release/Jotnotes/jotpanel?label=release&color=2d7d46)](https://github.com/Jotnotes/jotpanel/releases/latest)
+[![Licence AGPL v3](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
+[![Debian and Ubuntu](https://img.shields.io/badge/runs%20on-Debian%20%7C%20Ubuntu-a81d33)](#what-a-machine-needs)
+[![Stars](https://img.shields.io/github/stars/Jotnotes/jotpanel?style=flat&color=f5a623)](https://github.com/Jotnotes/jotpanel/stargazers)
+
+**[jotpanel.jotnotes.com](https://jotpanel.jotnotes.com)** · [Install](#install) · [What it does](#what-it-does) · [Connect your own AI](#connect-your-own-ai) · [For hosting companies](#for-hosting-companies)
+
+### Try it in one line
+
+On a fresh Debian or Ubuntu machine, as root:
+
+```bash
+curl -fsSLo jotpanel-install https://github.com/Jotnotes/jotpanel/releases/latest/download/jotpanel-install && sudo bash jotpanel-install --domain panel.example.com --email you@example.com
+```
+
+That fetches the current release, checks it against its own published checksum and installs both
+halves of the panel. There is no account to make first and nothing to pay, and the whole panel is
+yours whether you ever register or not.
+
 ---
 
 ## What it does
@@ -157,6 +176,24 @@ Registration is free. It switches on Echo, the built-in assistant, which answers
 in Settings; the key stays on your server. A
 panel that never registers is a complete panel, and your own AI can still connect through the MCP
 gateway.
+
+## For hosting companies
+
+If you run JotPanel on machines you sell to other people, there is a hoster licence. It is the only
+thing in this project that costs money and it buys the reseller and customer chain rather than any
+part of the panel itself: one allocation you hold, keys you issue to your own customers, seats you
+can split and hand on, and a portal where you manage all of it.
+
+It is billed monthly on the number of servers you run it on, at **$15 a server for one to four, $10
+for five to nineteen and $7 beyond twenty**, and you can cancel it yourself at any time. Cancelling
+keeps your service to the date you have already paid for rather than cutting it off on the day you
+ask.
+
+**[Buy a hoster licence](https://license.jotnotes.com/checkout)** · [Manage a licence you already
+have](https://license.jotnotes.com/portal) · [What you get, in full](https://jotpanel.jotnotes.com)
+
+If your company needs an invoice rather than a card, write to jot@jotnotes.com with the number of
+servers and we will send one.
 
 ## Connect your own AI
 
