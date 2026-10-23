@@ -129,6 +129,22 @@ a provider and inside a package.
 Nothing registers, phones home or contacts JotNotes. Registration is offered in the Registration screen later.
 It is free and only switches on Echo, which then answers with the AI key you add in Settings.
 
+## 4b. Security updates afterwards
+
+Services installed by the panel are distribution packages and are patched by the distribution. The
+panel reads what is waiting, offers the security-only update for you to approve, and reads the
+machine back afterwards.
+
+It does not tell you that a named CVE is fixed, because it has no vulnerability feed. "Nothing
+waiting" means nothing is waiting: a machine with stale package lists, a held package, or an archive
+that has not published a fix can be quiet and still be behind. Settling a specific CVE means reading
+the vendor advisory for your release and comparing its fixed version with what is installed. Note too
+that Ubuntu backports fixes without moving the upstream version, so an upstream version number is not
+evidence either way.
+
+Updating the PHP packages does not restart the PHP-FPM workers. The panel names the unit for each
+version it finds so you can restart it as a separate approved action.
+
 ## 5. Checking the install
 
 The installer writes `/opt/jotpanel/install-report.txt`, readable by root and the `jotpanel` group. It

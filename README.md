@@ -115,6 +115,23 @@ The panel's name is given with `--domain` at install time, or afterwards from Se
 resolves to the machine. Giving it at install is the better path, because changing it later fetches a
 certificate and restarts the panel. Leaving `--domain` off installs on the machine's address with a
 certificate it makes itself, which suits a box that has no name yet.
+
+### The services the machine runs
+
+The installer lays down the panel, a web server, a certificate client, a firewall and Node. The rest,
+so MariaDB, PostgreSQL, PHP, Postfix and Dovecot, Roundcube, BIND, OpenDKIM, rspamd and fail2ban,
+arrives when you ask for it: each is a single action under Server operations that you approve, and
+the panel reads the machine back afterwards to confirm the service is really there. Install what you
+will use and add the rest later.
+[Installing the services your machine runs](docs/guides/HOST_installing-services.md) lists them all.
+
+Those services are distribution packages, so the panel keeps them patched the distribution's way:
+it reads what is waiting, offers the security-only update for you to approve, and reads the machine
+back afterwards. It will not tell you a named CVE is fixed, because it has no vulnerability feed —
+"nothing waiting" means nothing is waiting, and settling a CVE means reading the vendor advisory for
+your release. Updating PHP does not restart the FPM workers, so the panel names the unit for you to
+restart as its own approved action.
+
 `sudo bash jotpanel-install --help` lists everything. The complete guide, including what the machine
 needs and how to check the result, is [`INSTALL.md`](INSTALL.md).
 
@@ -206,6 +223,5 @@ the panel reads the result back. Every other panel lets your AI call tools. JotP
 
 VACP™ is a trademark of JotNotes, which coined the name for this approval loop. The code is free
 software; the name is not part of the licence.
-
 
 GNU Affero General Public License, version 3 or later. See [`LICENSE`](LICENSE) for the terms.

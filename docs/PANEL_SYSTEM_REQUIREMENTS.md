@@ -77,7 +77,7 @@ Typical idle footprints, **estimated rather than measured on an JotPanel box**:
 
 Add the mail row, the antispam row and a database to a 1 GB box and it is full before a single
 visitor arrives. That is the whole reason the tiers exist, and it is also why DirectAdmin publishes
-4 GB: their installer puts the lot on by default, and ours does not.
+4 GB: their installer puts the lot on by default, and ours installs what you ask for.
 
 ## 4. Swap, which matters more than the RAM number
 

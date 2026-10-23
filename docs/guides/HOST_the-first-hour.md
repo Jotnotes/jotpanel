@@ -61,6 +61,11 @@ That matters on a small machine, because the panel is about 150 MB and the stack
 filtering alone is 150 to 300 MB. Install what you are actually going to use, and add the rest later
 when you need it.
 
+Each one is a single action under **Server operations** that you approve, and the panel reads the
+machine back afterwards to confirm the service is really there.
+[Installing the services your machine runs](HOST_installing-services.md) lists every service you can
+add this way, and describes the install-time profiles that arrive with the next release.
+
 ## 6. Make your first account, not your first website
 
 Resist putting a site on the owner account. The owner runs the machine, and the account that runs the

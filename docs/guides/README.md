@@ -15,7 +15,8 @@ Three audiences, and the prefix on the file says which one an article is for.
 
 1. [The first hour](HOST_the-first-hour.md)
 2. [How a change happens](HOST_how-a-change-happens.md)
-3. [Accounts, packages and limits](HOST_accounts-packages-and-limits.md)
+3. [Installing the services your machine runs](HOST_installing-services.md)
+4. [Accounts, packages and limits](HOST_accounts-packages-and-limits.md)
 
 ## Running the machine
 
