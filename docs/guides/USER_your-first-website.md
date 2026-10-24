@@ -26,7 +26,10 @@ Three ways, and any of them is fine.
 **Turn on SFTP** and use a program like FileZilla or Cyberduck. Turn it off again when you are done,
 which takes one click and is a genuinely good habit.
 
-**Install an application.** WordPress installs in one step, along with the database it needs.
+**Install an application.** WordPress installs in one step, along with the database it needs, and
+Adminer and phpMyAdmin install the same way. A database tool like those two answers the whole
+internet as soon as it is up, so password-protect the site before you install one. Keep the
+application updated yourself: the panel installs it but does not keep it current.
 
 ## The green padlock
 

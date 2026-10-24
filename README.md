@@ -65,7 +65,10 @@ IMAP where there is no archive, and a whole account leaves as one ZIP whenever y
 
 Seven runtime choices are supported: Node, Python, Ruby, Java, Perl, .NET and any compiled program,
 including Go, Rust and Delphi. Six of the seven have served a real page. Adminer, phpMyAdmin and
-WordPress install in one click.
+WordPress install onto a site in one operation. That installer is built but not yet proved end to
+end on a live server. And a database tool put up this way answers the whole internet the moment it
+is there, so password-protect the site first — its own one-operation action — and update the
+application yourself, because the panel does not.
 
 ## How a change happens
 
@@ -79,12 +82,18 @@ and refuses anything else.
 
 ## Verified systems
 
-Installed from a bare machine and driven through the function checks on each of these:
+**Ubuntu and Debian only.**
 
-- Ubuntu 22.04, 24.04 and 26.04
-- Debian 12 and 13
+- **Ubuntu 24.04 LTS** is verified against the published v1.0.2 release: the one-line install was
+  driven end to end on a fresh 24.04 server on 2026-10-22, through install, login, service health
+  and propose-approve-execute.
+- **Ubuntu 22.04 and 26.04, and Debian 12 and 13** each passed the installer matrix run by
+  `scripts/matrix.sh` on 2026-08-29. That run was on a build that predates v1.0.2 and has not been
+  repeated on this release.
 
-Ubuntu 24.04 LTS is the tested and supported platform.
+Ubuntu 24.04 LTS is the primary tested platform and the one each release is proved on.
+
+**Not supported: the RHEL family.** RHEL, Rocky, AlmaLinux, Fedora and CloudLinux are not supported and the installer refuses them. The package lists and the privileged operations are written for apt throughout, so a panel installed there could not install a database, mail or PHP.
 
 ## What a machine needs
 

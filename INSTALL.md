@@ -12,9 +12,15 @@ service, the socket between the two halves and the firewall around them.
 
 ## 1. What the machine needs
 
-A 64-bit Linux box with systemd, and root on it. Ubuntu 24.04 LTS is the tested and supported
-platform. Ubuntu 22.04 and 26.04 and Debian 12 and 13 have each been installed from bare metal and
-driven through the function checks by `scripts/matrix.sh`.
+A 64-bit Linux box with systemd, and root on it. **Ubuntu and Debian only.**
+
+Ubuntu 24.04 LTS is the primary tested platform and the one each release is proved on, and it is
+verified against the published v1.0.2 release: a fresh-server install driven end to end on
+2026-10-22. Ubuntu 22.04 and 26.04 and Debian 12 and 13 were each installed from bare metal and
+driven through the function checks by `scripts/matrix.sh` on 2026-08-29, on a build that predates
+v1.0.2 and has not been re-proved on this release.
+
+**Not supported: the RHEL family.** RHEL, Rocky, AlmaLinux, Fedora and CloudLinux are not supported and the installer refuses them. The package lists and the privileged operations are written for apt throughout, so a panel installed there could not install a database, mail or PHP.
 
 Size the box for the job you are giving it, not for the panel. The panel itself is about 150 MB of
 resident memory across its two services. What fills a small machine is the stack you install

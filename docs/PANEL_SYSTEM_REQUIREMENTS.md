@@ -30,6 +30,11 @@ they have not been measured on a live JotPanel box yet. Section 7 says what woul
 **Swap: at least as much as RAM, on every one of these.** It is not optional on the smaller two, and
 section 4 says why.
 
+**Ubuntu and Debian only.** Ubuntu 24.04 LTS is the primary tested platform, and the one verified
+against the published v1.0.2 release — a fresh-server install driven end to end on 2026-10-22.
+Ubuntu 22.04 and 26.04 and Debian 12 and 13 each passed the installer matrix on 2026-08-29, on a
+build that predates v1.0.2. **Not supported: the RHEL family.** RHEL, Rocky, AlmaLinux, Fedora and CloudLinux are not supported and the installer refuses them. The package lists and the privileged operations are written for apt throughout, so a panel installed there could not install a database, mail or PHP.
+
 Anything 64-bit with systemd. Ubuntu 24.04 LTS is the tested and supported platform today; see
 section 6 for everything else and its honest status.
 
