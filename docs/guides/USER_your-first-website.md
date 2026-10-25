@@ -27,9 +27,10 @@ Three ways, and any of them is fine.
 which takes one click and is a genuinely good habit.
 
 **Install an application.** WordPress installs in one step, along with the database it needs, and
-Adminer and phpMyAdmin install the same way. A database tool like those two answers the whole
-internet as soon as it is up, so password-protect the site before you install one. Keep the
-application updated yourself: the panel installs it but does not keep it current.
+phpMyAdmin installs the same way. (Adminer is not available in v1.0.2.) A database tool like
+phpMyAdmin answers the whole internet as soon as it is up, so password-protect the site before you
+install one. Keep the application updated yourself: the panel installs it but does not keep it
+current.
 
 ## The green padlock
 

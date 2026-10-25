@@ -35,14 +35,13 @@ browser that is not signed in.
 
 ## Applications in one operation
 
-Adminer, phpMyAdmin and WordPress install onto a site in one operation. This installer is built but
-has not yet been exercised end to end on a live server, so treat the first install on a machine as
-unproven.
+WordPress and phpMyAdmin install onto a site in one operation. Both were installed from a fresh
+Ubuntu 24.04 server and served over HTTP on 2026-10-25. Adminer is not available in v1.0.2.
 
-A database tool — phpMyAdmin or Adminer — is served to the whole internet the moment it is
-installed: anyone who finds the URL gets a login box for your databases. The panel does not put a
-password on it for you, and does not keep the software updated. Protect the site first (see
-"Password protecting a directory" above), then install, and update the application yourself.
+A database tool like phpMyAdmin is served to the whole internet the moment it is installed: anyone
+who finds the URL gets a login box for your databases. The panel does not put a password on it for
+you, and does not keep the software updated. Protect the site first (see "Password protecting a
+directory" above), then install, and update the application yourself.
 
 ## Certificates
 

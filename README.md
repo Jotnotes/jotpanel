@@ -64,11 +64,11 @@ SSH keys, passkeys, two-factor codes and recovery codes.
 IMAP where there is no archive, and a whole account leaves as one ZIP whenever you want it to.
 
 Seven runtime choices are supported: Node, Python, Ruby, Java, Perl, .NET and any compiled program,
-including Go, Rust and Delphi. Six of the seven have served a real page. Adminer, phpMyAdmin and
-WordPress install onto a site in one operation. That installer is built but not yet proved end to
-end on a live server. And a database tool put up this way answers the whole internet the moment it
-is there, so password-protect the site first — its own one-operation action — and update the
-application yourself, because the panel does not.
+including Go, Rust and Delphi. Six of the seven have served a real page. WordPress and phpMyAdmin
+install onto a site in one operation, and both were installed from a fresh Ubuntu 24.04 server and
+served over HTTP on 2026-10-25. Adminer is not available in v1.0.2. A database tool like phpMyAdmin
+answers the whole internet the moment it is there, so password-protect the site first — its own
+one-operation action — and update the application yourself, because the panel does not.
 
 ## How a change happens
 
