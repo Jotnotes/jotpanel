@@ -1410,6 +1410,80 @@ async function mysqlImport(params) {
   return { name, engine: 'mysql', tables_before: before.tables.length, tables_after: after.tables.length, verified: true };
 }
 
+// ── A customer's uploaded SQL never runs as root (audit blocker B1, 2026-11-10) ───────────────────────────
+//
+// `mysqlImport` above runs as the MariaDB root account. That is right for a dump this product wrote itself (a
+// restore, a rollback) and wrong for a file a customer wrote: a customer's `CREATE USER ...; GRANT ALL ON *.* ...`
+// became a superuser on the machine, reaching every other tenant's data and every write block. A customer's file
+// now runs as an account that has ALL privileges on THIS database and nothing anywhere else: no global privilege,
+// no FILE, no GRANT OPTION, no SUPER. Filtering statements is not what protects anybody; the account cannot do
+// the thing, so a statement asking for it is refused by the server itself.
+//
+// The account is per database, locked whenever no import is running, and given a fresh random password for each
+// import (passed in the environment of the client, never in an argument). It is NOT dropped afterwards: views,
+// routines, triggers and events created by the file are owned by it (`DEFINER`), and a definer that does not
+// exist is an object that fails when it is used. It cannot sign in while locked.
+const IMPORT_ACCOUNT_PREFIX = 'jpimp_';
+// The import account is used for nothing but uploads, so bounding it cannot touch a customer's site (M6, 2026-11-21). A statement in
+// an upload that runs longer than this is stopped BY THE SERVER (max_statement_time), which a killed client does not do for a
+// statement that is already burning CPU, and an upload gets two connections, not the server's whole pool. The default is generous
+// for a real dump (a single statement is seconds); the setting exists so a host with unusual data can raise it, and so a test can
+// lower it. It never applies to a customer's own application account, which is a separate decision.
+const IMPORT_STATEMENT_SECONDS_DEFAULT = 300;
+function importAccountLimits() {
+  const asked = Number(process.env.JOTPANEL_IMPORT_MAX_STATEMENT_SECONDS);
+  const statementSeconds = Number.isFinite(asked) && asked >= 1 && asked <= 3600 ? Math.floor(asked) : IMPORT_STATEMENT_SECONDS_DEFAULT;
+  return { statementSeconds, connections: 2 };
+}
+function importAccountFor(name) { return `${IMPORT_ACCOUNT_PREFIX}${crypto.createHash('sha256').update(`import:${name}`).digest('hex').slice(0, 14)}`; }
+
+// `DEFINER=` names an account on the machine the dump came from, which does not exist here and which only the
+// superuser may name. It is removed from the lines that CREATE an object so the objects take the import account
+// as their definer. Only lines that start a CREATE statement are touched: a row of data that happens to contain the
+// word is never rewritten. This is a convenience for ordinary dumps, not a security control.
+function stripDefiners(sql) {
+  const definer = /DEFINER\s*=\s*(?:`[^`]*`|'[^']*'|"[^"]*"|[A-Za-z0-9_.$-]+)(?:\s*@\s*(?:`[^`]*`|'[^']*'|"[^"]*"|[A-Za-z0-9_.%$-]+))?/gi;
+  return String(sql).split('\n').map(line => (/^\s*(?:CREATE\b|\/\*!\d+\s*(?:CREATE|DEFINER)\b)/i.test(line) ? line.replace(definer, '') : line)).join('\n');
+}
+
+async function mysqlImportCustomer(params) {
+  const name = dbName(params.name);
+  const sql = stripDefiners(String(params.sql || ''));
+  if (!sql.trim()) throw new Error('The SQL dump is empty');
+  if (Buffer.byteLength(sql) > 256 * 1024 * 1024) throw new Error('The SQL dump exceeds 256 MB');
+  if (!(await mysqlDatabaseExists(name))) throw new Error(`There is no database called ${name}`);
+  const before = await mysqlTables({ name });
+  const account = importAccountFor(name);
+  const password = crypto.randomBytes(24).toString('hex');
+  const scope = name.replace(/_/g, '\\_');
+  const limits = importAccountLimits();
+  await mysql(`CREATE USER IF NOT EXISTS '${account}'@'localhost' IDENTIFIED BY '${password}';\nALTER USER '${account}'@'localhost' IDENTIFIED BY '${password}' WITH MAX_USER_CONNECTIONS ${limits.connections} MAX_STATEMENT_TIME ${limits.statementSeconds} ACCOUNT UNLOCK;\nGRANT ALL PRIVILEGES ON \`${scope}\`.* TO '${account}'@'localhost';`);
+  let failed = null;
+  try {
+    // `--binary-mode` is what stops the CLIENT obeying the file. The command-line client has commands of its own, handled before a
+    // statement is sent: `system` and `\!` run a shell command, `source` and `\.` read a local file, `tee` and `\T` write one, `pager`
+    // starts a program. The worker runs this client as root, so one such line in a customer's upload ran as root on the host (found
+    // 2026-11-21 on a real MariaDB; control/ops/databaseImportClient.realdb.test.js). For piped input the mode switches all of them off
+    // and keeps `DELIMITER`, which routines in an ordinary dump need. The account's privileges protect the SERVER; this protects the MACHINE.
+    await must(mysqlBin(), ['--protocol=socket', `--user=${account}`, `--database=${name}`, '--local-infile=0', '--binary-mode'],
+      { input: sql, timeoutMs: 600000, maxBuffer: OUTPUT_LIMIT, env: { ...process.env, MYSQL_PWD: password } }, `The import into ${name} failed`);
+  } catch (error) { failed = error; }
+  // locked again whatever happened, its password replaced, and any connection it still holds ended
+  try {
+    await mysql(`ALTER USER '${account}'@'localhost' IDENTIFIED BY '${crypto.randomBytes(24).toString('hex')}' ACCOUNT LOCK;`);
+    const open = tsv((await mysql(`SELECT id FROM information_schema.processlist WHERE user='${account}'`)).stdout).map(row => Number(row[0])).filter(Number.isInteger);
+    for (const id of open) { try { await mysql(`KILL CONNECTION ${id}`); } catch { /* it ended by itself */ } }
+  } catch (error) { console.error(`[database.import] could not lock ${account}: ${firstLine(error.message)}`); }
+  if (failed) {
+    const reason = String(failed.message || '').split('\n')[0].replace(new RegExp(account, 'g'), 'the import account');
+    throw Object.assign(new Error(/Access denied|command denied|1044|1142|1227|1370|1045/i.test(reason)
+      ? `The uploaded SQL tried to do something outside ${name}, which an import is not allowed to do, so it stopped there (${reason.slice(0, 160)}).`
+      : reason), { code: failed.code });
+  }
+  const after = await mysqlTables({ name });
+  return { name, engine: 'mysql', tables_before: before.tables.length, tables_after: after.tables.length, verified: true };
+}
+
 // ── Websites and certificates ─────────────────────────────────────
 function currentOrLegacy(current, legacy) { return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current; }
 function siteConfigPath(name) {
@@ -2514,14 +2588,14 @@ const ENGINES = {
     create: p => mysqlCreate(p), drop: p => mysqlDrop(p),
     userCreate: p => mysqlUserCreate(p), userDrop: p => mysqlUserDrop(p),
     grant: p => mysqlGrant(p), password: p => mysqlPasswordChange(p),
-    dump: p => mysqlDump(p), import: p => mysqlImport(p),
+    dump: p => mysqlDump(p), import: p => mysqlImport(p), importCustomer: p => mysqlImportCustomer(p),
   },
   postgres: {
     probe: () => postgresProbe(), list: () => postgresList(), tables: p => postgresTables(p),
     create: p => postgresCreate(p), drop: p => postgresDrop(p),
     userCreate: p => postgresUserCreate(p), userDrop: p => postgresUserDrop(p),
     grant: p => postgresGrant(p), password: p => postgresPasswordChange(p),
-    dump: p => postgresDump(p), import: p => postgresImport(p),
+    dump: p => postgresDump(p), import: p => postgresImport(p), importCustomer: () => refusePostgresCustomerImport(),
   },
 };
 
@@ -2577,6 +2651,10 @@ const databaseGrant = params => withEngine(params, 'grant');
 const databasePasswordChange = params => withEngine(params, 'password');
 const databaseDump = params => withEngine(params, 'dump');
 const databaseImport = params => withEngine(params, 'import');
+const databaseImportCustomer = params => withEngine(params, 'importCustomer');
+function refusePostgresCustomerImport() {
+  throw Object.assign(new Error('Loading a SQL file into a PostgreSQL database is not available yet: only MariaDB imports are supported. Ask your hosting company if you need data loaded into PostgreSQL.'), { code: 'DATABASE_IMPORT_ENGINE_UNSUPPORTED' });
+}
 
 // ── Backups ───────────────────────────────────────────────────────
 //
@@ -7004,7 +7082,7 @@ const SPECS = {
   'database.grant': [['name', 'username', 'privileges', 'engine'], databaseGrant],
   'database.password': [['username', 'password', 'engine'], databasePasswordChange],
   'database.dump': [['name', 'engine'], databaseDump],
-  'database.import': [['name', 'sql', 'engine'], databaseImport],
+  'database.import': [['name', 'sql', 'engine'], databaseImportCustomer],
   'site.list': [[], siteList],
   'site.create': [['domain', 'documentRoot'], siteCreate],
   'site.delete': [['domain'], siteDelete],
